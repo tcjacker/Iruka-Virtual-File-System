@@ -1,5 +1,7 @@
 # Host Adapter Contract
 
+[中文说明](./HOST_ADAPTER.zh-CN.md)
+
 `iruka_vfs` owns the VFS runtime.
 
 The host service owns:

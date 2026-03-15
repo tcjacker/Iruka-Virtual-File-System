@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Core runtime code lives in [`iruka_vfs/`](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs). `service.py` is the main entry point; supporting modules handle parsing, path resolution, cache state, SQLAlchemy persistence, and workspace mirroring. Example usage is in [`examples/standalone_sqlite_demo.py`](/Users/tc/ai/Iruka-Virtual-File-System/examples/standalone_sqlite_demo.py). Schema and index SQL lives under [`sql/`](/Users/tc/ai/Iruka-Virtual-File-System/sql). Design notes and benchmark records live in [`docs/`](/Users/tc/ai/Iruka-Virtual-File-System/docs).
+Core runtime code lives in [`iruka_vfs/`](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs). `service.py` is the main entry point; supporting modules handle parsing, path resolution, cache state, SQLAlchemy persistence, and workspace mirroring. Example usage is in [`examples/standalone_sqlite_demo.py`](/Users/tc/ai/Iruka-Virtual-File-System/examples/standalone_sqlite_demo.py). Schema and index SQL lives under [`sql/`](/Users/tc/ai/Iruka-Virtual-File-System/sql).
 
 ## Build, Test, and Development Commands
 

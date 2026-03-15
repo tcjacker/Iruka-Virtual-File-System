@@ -1,5 +1,7 @@
 # `iruka_vfs`
 
+[中文说明](./README.zh-CN.md)
+
 `iruka_vfs` is a standalone VFS runtime for agent-driven editing workflows.
 
 It owns:
@@ -108,7 +110,3 @@ The demo uses:
 - an in-memory fake Redis
 
 It creates one workspace, mounts one writable chapter-like file into the VFS, runs `cat` and `edit`, and then flushes the workspace.
-
-## Technical History
-
-The original implementation notes and benchmark records are kept under [`docs/`](docs/README.md).
