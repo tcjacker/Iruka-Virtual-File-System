@@ -285,7 +285,6 @@ def wait_for_checkpoint(module, bench_workspace: Any, target_revision: int, time
     while (time.perf_counter() - started) < timeout_seconds:
         mirror = service._get_workspace_mirror_api(
             bench_workspace.workspace_id,
-            bench_workspace.virtual_chapter_id,
             tenant_key=bench_workspace.tenant_id,
         )
         if mirror and int(mirror.checkpoint_revision) >= target_revision:
@@ -297,7 +296,6 @@ def wait_for_checkpoint(module, bench_workspace: Any, target_revision: int, time
         time.sleep(0.01)
     mirror = service._get_workspace_mirror_api(
         bench_workspace.workspace_id,
-        bench_workspace.virtual_chapter_id,
         tenant_key=bench_workspace.tenant_id,
     )
     return {
@@ -326,7 +324,7 @@ def run_scenario(
         session_local,
         tenant_id=tenant,
         runtime_key=f"{tenant}:phase-profile",
-        chapter_id=1,
+        file_index=1,
         chapter_text=module.render_size_target(chapter_bytes, marker_count=max(iterations + 8, 256)),
         context_files={"outline.md": "benchmark marker\n" * 8},
         skill_files={"style.md": "keep edits deterministic\n"},
@@ -348,7 +346,6 @@ def run_scenario(
                     raise RuntimeError(f"{scenario} edit failed: {result['stderr']}")
             mirror = service._get_workspace_mirror_api(
                 bench_workspace.workspace_id,
-                bench_workspace.virtual_chapter_id,
                 tenant_key=bench_workspace.tenant_id,
             )
             target_revision = int(mirror.revision) if mirror else 0

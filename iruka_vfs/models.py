@@ -35,7 +35,6 @@ class WorkspaceMirror:
     tenant_key: str
     scope_key: str
     workspace_id: int
-    chapter_id: int
     root_id: int
     session_id: int
     cwd_node_id: int

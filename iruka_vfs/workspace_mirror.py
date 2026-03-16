@@ -277,7 +277,6 @@ def serialize_workspace_mirror(mirror: WorkspaceMirror) -> str:
         "tenant_key": mirror.tenant_key,
         "scope_key": mirror.scope_key,
         "workspace_id": mirror.workspace_id,
-        "chapter_id": mirror.chapter_id,
         "root_id": mirror.root_id,
         "session_id": mirror.session_id,
         "cwd_node_id": mirror.cwd_node_id,
@@ -307,7 +306,6 @@ def serialize_workspace_mirror_meta(mirror: WorkspaceMirror) -> str:
         "tenant_key": mirror.tenant_key,
         "scope_key": mirror.scope_key,
         "workspace_id": mirror.workspace_id,
-        "chapter_id": mirror.chapter_id,
         "root_id": mirror.root_id,
         "session_id": mirror.session_id,
         "cwd_node_id": mirror.cwd_node_id,
@@ -377,7 +375,6 @@ def deserialize_workspace_mirror(
         tenant_key=tenant_key,
         scope_key=str(payload.get("scope_key") or effective_workspace_scope()),
         workspace_id=int(payload["workspace_id"]),
-        chapter_id=int(payload["chapter_id"]),
         root_id=int(payload["root_id"]),
         session_id=int(payload["session_id"]),
         cwd_node_id=int(payload["cwd_node_id"]),
@@ -416,7 +413,6 @@ def _deserialize_legacy_workspace_mirror(payload: dict[str, object]) -> Workspac
         tenant_key=tenant_key,
         scope_key=str(payload.get("scope_key") or effective_workspace_scope()),
         workspace_id=int(payload["workspace_id"]),
-        chapter_id=int(payload["chapter_id"]),
         root_id=int(payload["root_id"]),
         session_id=int(payload["session_id"]),
         cwd_node_id=int(payload["cwd_node_id"]),
@@ -457,12 +453,11 @@ def load_workspace_mirror_by_base_key(client, base_key: str) -> WorkspaceMirror 
 
 def get_workspace_mirror(
     workspace_id: int,
-    chapter_id: int | None = None,
     tenant_key: str | None = None,
     scope_key: str | None = None,
 ) -> WorkspaceMirror | None:
     active = active_workspace_mirror(workspace_id)
-    if active and (chapter_id is None or int(active.chapter_id) == int(chapter_id)):
+    if active:
         return active
     from iruka_vfs import service
 
@@ -474,8 +469,6 @@ def get_workspace_mirror(
         return None
     mirror = load_workspace_mirror_by_base_key(client, str(base_key))
     if not mirror:
-        return None
-    if chapter_id is not None and int(mirror.chapter_id) != int(chapter_id):
         return None
     return mirror
 
@@ -621,7 +614,6 @@ def _snapshot_dirty_batch_locked(mirror: WorkspaceMirror) -> dict[str, object]:
         "workspace_metadata": dict(mirror.workspace_metadata),
         "tenant_key": str(mirror.tenant_key),
         "workspace_id": int(mirror.workspace_id),
-        "chapter_id": int(mirror.chapter_id),
     }
 
 
@@ -723,7 +715,6 @@ def rebuild_workspace_mirror_indexes_locked(mirror: WorkspaceMirror) -> None:
 def build_workspace_mirror(
     db: Session,
     workspace: AgentWorkspace,
-    chapter: Chapter | int,
     *,
     session: VirtualShellSession,
 ) -> WorkspaceMirror:
@@ -739,7 +730,6 @@ def build_workspace_mirror(
         tenant_key=workspace_tenant_key(workspace),
         scope_key=workspace_scope_for_db(db),
         workspace_id=int(workspace.id),
-        chapter_id=int(chapter.id if hasattr(chapter, "id") else chapter),
         root_id=int(root.id),
         session_id=int(session.id or 0),
         cwd_node_id=int(session.cwd_node_id or root.id),
@@ -959,7 +949,6 @@ def flush_workspace_mirror(mirror: WorkspaceMirror | None, *, base_key: str | No
                 json.dumps(
                     {
                         "workspace_id": int(snapshot["workspace_id"]) if "snapshot" in locals() else None,
-                        "chapter_id": int(snapshot["chapter_id"]) if "snapshot" in locals() else None,
                         "tenant_key": str(snapshot["tenant_key"]) if "snapshot" in locals() else None,
                         "ts": datetime.utcnow().isoformat(),
                         "error_type": type(exc).__name__,

@@ -36,18 +36,24 @@ workspace = create_workspace(
     workspace=workspace_model,
     tenant_id=str(workspace_model.tenant_id),
     runtime_key=str(workspace_model.runtime_key),
-    chapter_id=chapter.id,
     primary_file=WritableFileSource(
         file_id=f"chapter:{chapter.id}",
         virtual_path=f"/workspace/chapters/chapter_{chapter.id}.md",
         read_text=lambda: chapter.body_text,
         write_text=lambda text: save_chapter_body(chapter.id, text),
     ),
+    workspace_files={
+        "/workspace/docs/brief.md": initial_brief_text,
+        "notes/host_seed.txt": "seeded by host adapter\n",
+    },
     context_files={"outline.md": outline_text},
     skill_files={"style.md": style_text},
 )
 
 workspace.ensure(db)
+workspace.write_file(db, "/workspace/docs/generated.md", "from host adapter")
+brief_text = workspace.read_file(db, "/workspace/docs/brief.md")
+doc_files = workspace.read_directory(db, "/workspace/docs")
 result = workspace.bash(db, "edit /workspace/chapters/chapter_123.md --find foo --replace bar")
 workspace.flush()
 ```

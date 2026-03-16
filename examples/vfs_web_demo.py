@@ -38,7 +38,6 @@ class DemoWorkspace(Base):
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, default="demo")
     runtime_key: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     project_id: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    chapter_id: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="idle")
     current_objective: Mapped[str] = mapped_column(Text, nullable=False, default="")
     focus_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
@@ -295,7 +294,6 @@ class DemoApp:
                     tenant_id=self.tenant_id,
                     runtime_key=f"web-demo:{self.runtime_counter}",
                     project_id=1,
-                    chapter_id=1,
                     status="idle",
                     current_objective="interactive verification",
                 )
@@ -307,7 +305,6 @@ class DemoApp:
                     workspace=workspace_row,
                     tenant_id=self.tenant_id,
                     runtime_key=f"web-demo:{workspace_row.id}:{self.runtime_counter}",
-                    chapter_id=1,
                     primary_file=WritableFileSource(
                         file_id="chapter:1",
                         virtual_path="/workspace/chapters/chapter_1.md",

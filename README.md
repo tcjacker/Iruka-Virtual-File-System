@@ -56,23 +56,45 @@ workspace = create_workspace(
     workspace=workspace_model,
     tenant_id="tenant-a",
     runtime_key="conv:1001",
-    chapter_id=123,
     primary_file=WritableFileSource(
         file_id="chapter:123",
         virtual_path="/workspace/chapters/chapter_123.md",
         read_text=load_chapter_text,
         write_text=save_chapter_text,
     ),
+    workspace_files={
+        "/workspace/docs/brief.md": "# Brief\n\nSeeded from Python.\n",
+        "notes/todo.txt": "- inspect outline\n",
+    },
     context_files={"outline.md": outline_text},
     skill_files={"style.md": style_text},
 )
 
 workspace.ensure(db)
+workspace.write_file(db, "/workspace/docs/generated.md", "hello from host")
+content = workspace.read_file(db, "/workspace/docs/brief.md")
+files = workspace.read_directory(db, "/workspace/docs")
 result = workspace.bash(db, "cat /workspace/chapters/chapter_123.md")
 workspace.flush()
 ```
 
 This facade is intentionally lightweight. It can be reused across turns for the same agent/workspace identity, but it should not be used for concurrent command execution.
+
+## Host File API
+
+Besides `workspace.bash(...)`, the host can manage virtual workspace files directly through Python APIs.
+
+- `create_workspace(..., workspace_files={path: content, ...})`
+- `workspace.write_file(db, path, content)`
+- `workspace.read_file(db, path)`
+- `workspace.read_directory(db, path, recursive=True)`
+
+Notes:
+
+- Relative paths are resolved under `/workspace`
+- Parent directories are created automatically on write
+- Paths must stay under `/workspace`
+- `read_directory(...)` returns a `{virtual_path: content}` mapping
 
 ## Workspace Lifecycle
 

@@ -36,7 +36,6 @@ class BenchmarkWorkspaceModel(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     conversation_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     project_id: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    chapter_id: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="idle")
     current_objective: Mapped[str] = mapped_column(Text, nullable=False, default="")
     focus_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
@@ -206,7 +205,7 @@ class MutableText:
 class BenchmarkWorkspace:
     tenant_id: str
     workspace_id: int
-    virtual_chapter_id: int
+    virtual_file_id: int
     workspace: Any
     handle: Any
     chapter_store: MutableText
@@ -361,7 +360,7 @@ def prepare_workspace(
     *,
     tenant_id: str,
     runtime_key: str,
-    chapter_id: int,
+    file_index: int,
     chapter_text: str,
     context_files: dict[str, str],
     skill_files: dict[str, str],
@@ -372,7 +371,6 @@ def prepare_workspace(
             tenant_id=tenant_id,
             conversation_id=1,
             project_id=1,
-            chapter_id=1,
             status="idle",
             current_objective="benchmark",
         )
@@ -384,10 +382,9 @@ def prepare_workspace(
             workspace=workspace_row,
             tenant_id=tenant_id,
             runtime_key=runtime_key,
-            chapter_id=chapter_id,
             primary_file=WritableFileSource(
-                file_id=f"chapter:{chapter_id}",
-                virtual_path=f"/workspace/chapters/chapter_{chapter_id}.md",
+                file_id=f"file:{file_index}",
+                virtual_path=f"/workspace/chapters/chapter_{file_index}.md",
                 read_text=chapter_store.read,
                 write_text=chapter_store.write,
                 metadata={"source_type": "benchmark"},
@@ -401,7 +398,7 @@ def prepare_workspace(
     return BenchmarkWorkspace(
         tenant_id=tenant_id,
         workspace_id=int(workspace_row.id),
-        virtual_chapter_id=chapter_id,
+        virtual_file_id=file_index,
         workspace=workspace_row,
         handle=handle,
         chapter_store=chapter_store,
@@ -434,7 +431,7 @@ def cleanup_benchmark_data(session_factory: sessionmaker, tenant_pattern: str) -
 def workspace_job(session_factory: sessionmaker, bench_workspace: BenchmarkWorkspace, commands_per_workspace: int) -> dict[str, Any]:
     command_latencies_ms: list[float] = []
     exit_codes: list[int] = []
-    chapter_path = f"/workspace/chapters/chapter_{bench_workspace.virtual_chapter_id}.md"
+    chapter_path = f"/workspace/chapters/chapter_{bench_workspace.virtual_file_id}.md"
     command_plan = [
         "cat /workspace/chapters/chapter_1.md",
         "wc /workspace/chapters/chapter_1.md",
@@ -451,7 +448,7 @@ def workspace_job(session_factory: sessionmaker, bench_workspace: BenchmarkWorks
             else:
                 command = f"edit {chapter_path} --find ALPHA --replace Alpha"
         elif "chapter_1.md" in command:
-            command = command.replace("chapter_1.md", f"chapter_{bench_workspace.virtual_chapter_id}.md")
+            command = command.replace("chapter_1.md", f"chapter_{bench_workspace.virtual_file_id}.md")
         with session_factory() as db:
             started = time.perf_counter()
             result = bench_workspace.handle.bash(db, command)
@@ -491,7 +488,7 @@ def finalize_latency_suite(
     warmup_iterations: int,
     latency_iterations: int,
 ) -> list[dict[str, Any]]:
-    chapter_path = f"/workspace/chapters/chapter_{bench_workspace.virtual_chapter_id}.md"
+    chapter_path = f"/workspace/chapters/chapter_{bench_workspace.virtual_file_id}.md"
     results: list[dict[str, Any]] = []
 
     warmup_commands = [
@@ -653,7 +650,7 @@ def main() -> None:
         session_factory,
         tenant_id=f"{tenant_root}_primary",
         runtime_key=f"{tenant_root}:primary",
-        chapter_id=1,
+        file_index=1,
         chapter_text=chapter_text,
         context_files=context_files,
         skill_files=skill_files,
@@ -680,7 +677,7 @@ def main() -> None:
             session_factory,
             tenant_id=f"{tenant_root}_worker_{i:02d}",
             runtime_key=f"{tenant_root}:worker:{i}",
-            chapter_id=i + 1,
+            file_index=i + 1,
             chapter_text=chapter_text,
             context_files=context_files,
             skill_files=skill_files,

@@ -17,7 +17,6 @@ class VFSWorkspace(Base):
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, default="default")
     runtime_key: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    chapter_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="idle")
     current_objective: Mapped[str] = mapped_column(Text, nullable=False, default="")
     focus_json: Mapped[dict] = mapped_column(JSON, default=dict)

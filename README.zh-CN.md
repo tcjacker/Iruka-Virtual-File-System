@@ -58,23 +58,45 @@ workspace = create_workspace(
     workspace=workspace_model,
     tenant_id="tenant-a",
     runtime_key="conv:1001",
-    chapter_id=123,
     primary_file=WritableFileSource(
         file_id="chapter:123",
         virtual_path="/workspace/chapters/chapter_123.md",
         read_text=load_chapter_text,
         write_text=save_chapter_text,
     ),
+    workspace_files={
+        "/workspace/docs/brief.md": "# Brief\n\nSeeded from Python.\n",
+        "notes/todo.txt": "- inspect outline\n",
+    },
     context_files={"outline.md": outline_text},
     skill_files={"style.md": style_text},
 )
 
 workspace.ensure(db)
+workspace.write_file(db, "/workspace/docs/generated.md", "hello from host")
+content = workspace.read_file(db, "/workspace/docs/brief.md")
+files = workspace.read_directory(db, "/workspace/docs")
 result = workspace.bash(db, "cat /workspace/chapters/chapter_123.md")
 workspace.flush()
 ```
 
 这个 facade 是轻量对象。它可以在同一个 agent / workspace 身份下跨 turn 复用，但不应该被多个请求并发调用。
+
+## 宿主文件 API
+
+除了 `workspace.bash(...)` 以外，宿主也可以直接通过 Python API 管理虚拟 workspace 内的文件。
+
+- `create_workspace(..., workspace_files={path: content, ...})`
+- `workspace.write_file(db, path, content)`
+- `workspace.read_file(db, path)`
+- `workspace.read_directory(db, path, recursive=True)`
+
+说明：
+
+- 相对路径会自动挂到 `/workspace` 下
+- 写文件时会自动创建父目录
+- 路径必须位于 `/workspace` 之内
+- `read_directory(...)` 返回 `{virtual_path: content}` 映射
 
 ## Workspace 生命周期
 

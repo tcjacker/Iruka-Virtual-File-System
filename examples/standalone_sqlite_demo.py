@@ -31,7 +31,6 @@ class DemoWorkspace(Base):
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, default="demo")
     runtime_key: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     project_id: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    chapter_id: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="idle")
     current_objective: Mapped[str] = mapped_column(Text, nullable=False, default="")
     focus_json: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -189,7 +188,6 @@ def main() -> None:
             tenant_id="demo",
             runtime_key="workspace:1",
             project_id=1,
-            chapter_id=1,
             status="idle",
         )
         db.add(workspace_row)
@@ -200,7 +198,6 @@ def main() -> None:
             workspace=workspace_row,
             tenant_id="demo",
             runtime_key=f"workspace:{workspace_row.id}",
-            chapter_id=1,
             primary_file=WritableFileSource(
                 file_id="chapter:1",
                 virtual_path="/workspace/chapters/chapter_1.md",

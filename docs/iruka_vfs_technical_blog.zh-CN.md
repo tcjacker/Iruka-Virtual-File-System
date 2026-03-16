@@ -96,7 +96,6 @@ workspace = create_workspace(
     workspace=workspace_row,
     tenant_id="demo",
     runtime_key="workspace:1",
-    chapter_id=1,
     primary_file=WritableFileSource(
         file_id="chapter:1",
         virtual_path="/workspace/chapters/chapter_1.md",
@@ -122,7 +121,6 @@ workspace = create_workspace(
 
 - `runtime_key`：运行时身份
 - `tenant_id`：租户隔离键
-- `chapter_id`：当前章节或主对象标识
 - `primary_file`：一个可写的外部文件源
 - `context_files`：上下文文件
 - `skill_files`：技能文件

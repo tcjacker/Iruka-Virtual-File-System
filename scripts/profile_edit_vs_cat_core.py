@@ -63,7 +63,7 @@ def run_case(*, enable_checkpoint: bool) -> dict[str, object]:
         session_local,
         tenant_id=tenant,
         runtime_key=tenant + ":1",
-        chapter_id=1,
+        file_index=1,
         chapter_text=module.render_size_target(64 * 1024, marker_count=128),
         context_files={"outline.md": "benchmark marker\n"},
         skill_files={"style.md": "keep edits deterministic\n"},

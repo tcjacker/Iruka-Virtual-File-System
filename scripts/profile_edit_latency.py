@@ -62,7 +62,7 @@ def run_edit_series(module, session_local, *, tenant: str, iterations: int, disa
             session_local,
             tenant_id=tenant,
             runtime_key=tenant + ":edit-profile",
-            chapter_id=1,
+            file_index=1,
             chapter_text=module.render_size_target(64 * 1024, marker_count=max(iterations + 8, 256)),
             context_files={"outline.md": "benchmark marker\n" * 8},
             skill_files={"style.md": "keep edits deterministic\n"},

@@ -53,6 +53,41 @@ class VirtualWorkspace:
 
         return service.flush_workspace(self.workspace_id, tenant_id=self.tenant_id)
 
+    def write_file(self, db: Session, path: str, content: str) -> dict[str, Any]:
+        from iruka_vfs import service
+
+        return service.write_workspace_file(
+            db,
+            self.workspace,
+            path,
+            content,
+            runtime_seed=self.runtime_seed,
+            tenant_id=self.tenant_id,
+        )
+
+    def read_file(self, db: Session, path: str) -> str:
+        from iruka_vfs import service
+
+        return service.read_workspace_file(
+            db,
+            self.workspace,
+            path,
+            runtime_seed=self.runtime_seed,
+            tenant_id=self.tenant_id,
+        )
+
+    def read_directory(self, db: Session, path: str, *, recursive: bool = True) -> dict[str, str]:
+        from iruka_vfs import service
+
+        return service.read_workspace_directory(
+            db,
+            self.workspace,
+            path,
+            runtime_seed=self.runtime_seed,
+            tenant_id=self.tenant_id,
+            recursive=recursive,
+        )
+
     def tree(self, db: Session) -> str:
         snapshot = self.ensure(db, include_tree=True)
         return str(snapshot.get("tree") or "")
@@ -63,8 +98,8 @@ def create_workspace_handle(
     workspace: Any,
     tenant_id: str | None = None,
     runtime_key: str | None = None,
-    chapter_id: int | None = None,
     primary_file: ExternalFileSource | None = None,
+    workspace_files: dict[str, str] | None = None,
     context_files: dict[str, str] | None = None,
     skill_files: dict[str, str] | None = None,
     metadata: dict[str, Any] | None = None,
@@ -77,17 +112,11 @@ def create_workspace_handle(
     if not resolved_runtime_key:
         raise ValueError("runtime_key is required either explicitly or on workspace.runtime_key")
 
-    resolved_chapter_id = chapter_id
-    if resolved_chapter_id is None:
-        workspace_chapter_id = getattr(workspace, "chapter_id", None)
-        if workspace_chapter_id is not None:
-            resolved_chapter_id = int(workspace_chapter_id)
-
     seed = RuntimeSeed(
         runtime_key=resolved_runtime_key,
         tenant_id=resolved_tenant_id,
-        chapter_id=resolved_chapter_id,
         primary_file=primary_file,
+        workspace_files=dict(workspace_files or {}),
         context_files=dict(context_files or {}),
         skill_files=dict(skill_files or {}),
         metadata=dict(metadata or {}),

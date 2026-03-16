@@ -30,7 +30,7 @@ def main() -> None:
         session_local,
         tenant_id=tenant,
         runtime_key=tenant + ":1",
-        chapter_id=1,
+        file_index=1,
         chapter_text=mod.render_size_target(4096),
         context_files={"outline.md": "x"},
         skill_files={"style.md": "y"},

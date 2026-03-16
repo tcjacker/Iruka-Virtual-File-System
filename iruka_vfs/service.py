@@ -212,10 +212,10 @@ def _truncate_for_log(text_value: str, limit: int) -> tuple[str, dict[str, Any]]
     return clipped, {"truncated": True, "original_length": original_len, "stored_length": len(clipped)}
 
 
-def _get_cached_workspace_state(scope_key: str, workspace_id: int, chapter_id: int) -> dict[str, Any] | None:
+def _get_cached_workspace_state(scope_key: str, workspace_id: int) -> dict[str, Any] | None:
     with _workspace_cache_lock:
         item = _workspace_cache.get((scope_key, workspace_id))
-        if not item or int(item.get("chapter_id") or 0) != int(chapter_id):
+        if not item:
             return None
         return dict(item)
 
@@ -322,11 +322,10 @@ def ensure_virtual_workspace(
     try:
         mirror = _get_workspace_mirror_api(
             workspace.id,
-            seed.chapter_id,
             tenant_key=tenant_key,
             scope_key=scope_key,
         )
-        cached = _get_cached_workspace_state(scope_key, workspace.id, seed.chapter_id or 0)
+        cached = _get_cached_workspace_state(scope_key, workspace.id)
         if cached and mirror and available_skills is None:
             if include_tree:
                 cached["tree"] = render_virtual_tree(db, workspace.id)
@@ -354,6 +353,15 @@ def ensure_virtual_workspace(
             if _get_node_content(db, context_node) != content:
                 _write_file(db, context_node, content, op="sync_from_project_state")
 
+        for path, content in seed.workspace_files.items():
+            _seed_workspace_file(
+                db,
+                workspace.id,
+                path,
+                content,
+                op="sync_from_workspace_files",
+            )
+
         for file_name, content in seed.skill_files.items():
             skill_node = _get_or_create_child_file(db, workspace.id, skills_dir.id, file_name, content)
             if _get_node_content(db, skill_node) != content:
@@ -365,6 +373,7 @@ def ensure_virtual_workspace(
         metadata["virtual_writable_roots"] = [VFS_ROOT]
         metadata["virtual_readonly_roots"] = []
         metadata["virtual_notes_dir"] = VFS_NOTES_ROOT
+        metadata["virtual_workspace_files"] = sorted(_normalize_workspace_path(path, require_file=True) for path in seed.workspace_files)
         metadata["virtual_context_files"] = sorted(seed.context_files.keys())
         metadata["virtual_skill_files"] = sorted(seed.skill_files.keys())
         metadata["virtual_workspace_ready"] = True
@@ -378,11 +387,10 @@ def ensure_virtual_workspace(
             )
 
         session = _get_or_create_session(db, workspace.id)
-        mirror = _build_workspace_mirror(db, workspace, seed.chapter_id or int(workspace.chapter_id), session=session)
+        mirror = _build_workspace_mirror(db, workspace, session=session)
         _set_workspace_mirror_api(mirror)
         snapshot = {
             "workspace_id": workspace.id,
-            "chapter_id": seed.chapter_id or int(workspace.chapter_id),
             "session_id": session.id,
             "chapter_file": metadata["virtual_chapter_file"],
         }
@@ -408,6 +416,68 @@ def _sync_external_file_source(
     if _get_node_content(db, file_node) != content and _get_node_version(db, file_node) <= 1:
         _write_file(db, file_node, content, op=sync_op)
     return source.virtual_path
+
+
+def _normalize_workspace_path(raw_path: str, *, require_file: bool = False) -> str:
+    cleaned = str(raw_path or "").strip()
+    if not cleaned:
+        raise ValueError("workspace path is required")
+    if not cleaned.startswith("/"):
+        cleaned = f"{VFS_ROOT.rstrip('/')}/{cleaned.lstrip('/')}"
+    parts: list[str] = []
+    for part in cleaned.split("/"):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            raise ValueError(f"workspace path cannot contain '..': {raw_path}")
+        parts.append(part)
+    normalized = "/" + "/".join(parts)
+    if not _path_is_under(normalized, VFS_ROOT):
+        raise ValueError(f"workspace path must stay under {VFS_ROOT}: {raw_path}")
+    if require_file and normalized == VFS_ROOT:
+        raise ValueError(f"workspace file path must not be the workspace root: {raw_path}")
+    return normalized
+
+
+def _ensure_virtual_dir_path(db: Session, workspace_id: int, dir_path: str) -> VirtualFileNode:
+    normalized = _normalize_workspace_path(dir_path)
+    root = _get_or_create_root(db, workspace_id)
+    if normalized == "/":
+        return root
+
+    current = root
+    for part in [item for item in normalized.split("/") if item]:
+        child = _resolve_path(db, workspace_id, int(current.id), part)
+        if child:
+            if child.node_type != "dir":
+                raise ValueError(f"workspace path exists as file: {normalized}")
+            current = child
+            continue
+        current = _get_or_create_child_dir(db, workspace_id, int(current.id), part)
+    return current
+
+
+def _seed_workspace_file(db: Session, workspace_id: int, path: str, content: str, *, op: str) -> dict[str, Any]:
+    normalized = _normalize_workspace_path(path, require_file=True)
+    parent_path, _, name = normalized.rpartition("/")
+    parent = _ensure_virtual_dir_path(db, workspace_id, parent_path or "/")
+    node = _resolve_path(db, workspace_id, int(parent.id), name)
+    created = False
+    if node:
+        if node.node_type != "file":
+            raise ValueError(f"workspace path exists as directory: {normalized}")
+    else:
+        node = _get_or_create_child_file(db, workspace_id, int(parent.id), name, content)
+        created = True
+
+    version_no = _get_node_version(db, node)
+    if not created and _get_node_content(db, node) != content:
+        version_no = _write_file(db, node, content, op=op)
+    return {
+        "path": normalized,
+        "version": int(version_no),
+        "created": created,
+    }
 
 
 def flush_workspace(workspace_id: int, tenant_id: str | None = None) -> bool:
@@ -460,14 +530,14 @@ def run_virtual_bash(
             include_tree=False,
             tenant_id=tenant_key,
         )
-        initial_mirror = _get_workspace_mirror_api(workspace.id, seed.chapter_id, tenant_key=tenant_key)
+        initial_mirror = _get_workspace_mirror_api(workspace.id, tenant_key=tenant_key)
         if not initial_mirror:
             raise ValueError(f"workspace mirror missing for workspace {workspace.id}")
         lock, _ = _workspace_lock_api(initial_mirror)
         if not lock.acquire(blocking=True):
             raise TimeoutError(f"failed to acquire workspace lock: {workspace.id}")
         try:
-            mirror = _get_workspace_mirror_api(workspace.id, seed.chapter_id, tenant_key=tenant_key)
+            mirror = _get_workspace_mirror_api(workspace.id, tenant_key=tenant_key)
             if not mirror:
                 raise ValueError(f"workspace mirror missing for workspace {workspace.id}")
             session = VirtualShellSession(
@@ -541,6 +611,94 @@ def run_virtual_bash(
         "artifacts": result.artifacts,
         "cwd": cwd_path,
     }
+
+
+def write_workspace_file(
+    db: Session,
+    workspace: AgentWorkspace,
+    path: str,
+    content: str,
+    *,
+    runtime_seed: RuntimeSeed,
+    tenant_id: str | None = None,
+) -> dict[str, Any]:
+    tenant_key = _assert_workspace_tenant(workspace, tenant_id)
+    ensure_virtual_workspace(
+        db,
+        workspace,
+        runtime_seed,
+        include_tree=False,
+        tenant_id=tenant_key,
+    )
+    normalized = _normalize_workspace_path(path, require_file=True)
+    session = _get_or_create_session(db, int(workspace.id))
+    allowed, deny_reason = _allow_write_path(db, session, normalized)
+    if not allowed:
+        raise PermissionError(f"write_file: {deny_reason}")
+    return _seed_workspace_file(
+        db,
+        int(workspace.id),
+        normalized,
+        content,
+        op="python_write_file",
+    )
+
+
+def read_workspace_file(
+    db: Session,
+    workspace: AgentWorkspace,
+    path: str,
+    *,
+    runtime_seed: RuntimeSeed,
+    tenant_id: str | None = None,
+) -> str:
+    tenant_key = _assert_workspace_tenant(workspace, tenant_id)
+    ensure_virtual_workspace(
+        db,
+        workspace,
+        runtime_seed,
+        include_tree=False,
+        tenant_id=tenant_key,
+    )
+    normalized = _normalize_workspace_path(path, require_file=True)
+    session = _get_or_create_session(db, int(workspace.id))
+    node = _resolve_path(db, int(workspace.id), int(session.cwd_node_id), normalized)
+    if not node or node.node_type != "file":
+        raise FileNotFoundError(f"workspace file not found: {normalized}")
+    return _get_node_content(db, node)
+
+
+def read_workspace_directory(
+    db: Session,
+    workspace: AgentWorkspace,
+    path: str,
+    *,
+    runtime_seed: RuntimeSeed,
+    tenant_id: str | None = None,
+    recursive: bool = True,
+) -> dict[str, str]:
+    tenant_key = _assert_workspace_tenant(workspace, tenant_id)
+    ensure_virtual_workspace(
+        db,
+        workspace,
+        runtime_seed,
+        include_tree=False,
+        tenant_id=tenant_key,
+    )
+    normalized = _normalize_workspace_path(path)
+    session = _get_or_create_session(db, int(workspace.id))
+    node = _resolve_path(db, int(workspace.id), int(session.cwd_node_id), normalized)
+    if not node or node.node_type != "dir":
+        raise FileNotFoundError(f"workspace directory not found: {normalized}")
+
+    files = (
+        _collect_files(db, int(workspace.id), int(node.id))
+        if recursive
+        else [child for child in _list_children(db, int(workspace.id), int(node.id)) if child.node_type == "file"]
+    )
+    rows = [(_node_path(db, item), _get_node_content(db, item)) for item in files]
+    rows.sort(key=lambda item: item[0])
+    return {path_key: content_value for path_key, content_value in rows}
 
 
 
