@@ -46,5 +46,8 @@ mem_cache_metrics: dict[str, int] = {
     "flush_ok": 0,
     "flush_conflict": 0,
     "flush_error": 0,
+    "checkpoint_retry": 0,
+    "checkpoint_dead_letter": 0,
+    "checkpoint_requeue": 0,
     "evicted": 0,
 }

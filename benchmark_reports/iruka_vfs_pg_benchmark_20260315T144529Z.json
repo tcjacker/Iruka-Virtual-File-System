@@ -1,0 +1,149 @@
+{
+  "report_version": 1,
+  "started_at": "2026-03-15T14:45:13.460016+00:00",
+  "ended_at": "2026-03-15T14:45:29.475008+00:00",
+  "duration_seconds": 16.014992,
+  "database": {
+    "host": "pgm-6we50rtg1rc9d3qtpo.pgsql.japan.rds.aliyuncs.com",
+    "database": "file_sys",
+    "driver": "postgresql+psycopg"
+  },
+  "parameters": {
+    "workspace_count": 2,
+    "commands_per_workspace": 6,
+    "latency_iterations": 5,
+    "warmup_iterations": 1,
+    "chapter_bytes": 65536,
+    "tenant_prefix": "bench",
+    "keep_data": false
+  },
+  "single_workspace_latency": [
+    {
+      "name": "ensure_warm",
+      "units": "ms",
+      "count": 5,
+      "min": 0.22974982857704163,
+      "max": 0.4554581828415394,
+      "mean": 0.28588343411684036,
+      "median": 0.2310420386493206,
+      "p95": 0.4210333339869976,
+      "p99": 0.448573213070631,
+      "stdev": 0.09754779140063448
+    },
+    {
+      "name": "cat_chapter",
+      "units": "ms",
+      "count": 5,
+      "min": 141.57449966296554,
+      "max": 366.88270792365074,
+      "mean": 193.2073164731264,
+      "median": 144.916916731745,
+      "p95": 327.46395794674754,
+      "p99": 358.9989579282701,
+      "stdev": 97.77904257316742
+    },
+    {
+      "name": "wc_chapter",
+      "units": "ms",
+      "count": 5,
+      "min": 139.52395785599947,
+      "max": 156.98533318936825,
+      "mean": 146.8339248560369,
+      "median": 144.62641719728708,
+      "p95": 155.65695818513632,
+      "p99": 156.71965818852186,
+      "stdev": 6.907332001112133
+    },
+    {
+      "name": "search_workspace",
+      "units": "ms",
+      "count": 5,
+      "min": 150.48312488943338,
+      "max": 158.2165420986712,
+      "mean": 153.87173341587186,
+      "median": 152.62458426877856,
+      "p95": 157.91466683149338,
+      "p99": 158.15616704523563,
+      "stdev": 3.406959178448077
+    },
+    {
+      "name": "write_note_redirect",
+      "units": "ms",
+      "count": 5,
+      "min": 139.65100003406405,
+      "max": 146.8647918663919,
+      "mean": 142.98156667500734,
+      "median": 141.69087493792176,
+      "p95": 146.7542251572013,
+      "p99": 146.84267852455378,
+      "stdev": 3.3782328253006217
+    },
+    {
+      "name": "edit_chapter",
+      "units": "ms",
+      "count": 5,
+      "min": 144.75137507542968,
+      "max": 166.657957714051,
+      "mean": 155.03490837290883,
+      "median": 151.55033394694328,
+      "p95": 165.59212459251285,
+      "p99": 166.44479108974338,
+      "stdev": 8.800771503703812
+    },
+    {
+      "name": "flush",
+      "units": "ms",
+      "count": 5,
+      "min": 1.0298751294612885,
+      "max": 640.6579161994159,
+      "mean": 129.1950668208301,
+      "median": 1.5101670287549496,
+      "p95": 512.8614497371017,
+      "p99": 615.0986229069531,
+      "stdev": 285.91655334585215,
+      "attempts": 5,
+      "failures": 0,
+      "success_rate": 1.0
+    }
+  ],
+  "concurrency": {
+    "workspace_count": 2,
+    "total_commands": 12,
+    "successful_commands": 12,
+    "wall_time_seconds": 2.0993401668965816,
+    "throughput_qps": 5.716081742836081,
+    "command_log_rows": 42,
+    "flush_failures": 0,
+    "command_latency_ms": {
+      "name": "concurrent_commands",
+      "units": "ms",
+      "count": 12,
+      "min": 141.75058295950294,
+      "max": 353.1997501850128,
+      "mean": 176.2840209606414,
+      "median": 165.9426875412464,
+      "p95": 256.55040447600175,
+      "p99": 333.86988104321074,
+      "stdev": 56.94471587430708
+    },
+    "flush_latency_ms": {
+      "name": "concurrent_flush",
+      "units": "ms",
+      "count": 2,
+      "min": 407.95795898884535,
+      "max": 556.0829588212073,
+      "mean": 482.0204589050263,
+      "median": 482.0204589050263,
+      "p95": 548.6767088295892,
+      "p99": 554.6017088228837,
+      "stdev": 104.74019184471933,
+      "attempts": 2,
+      "failures": 0,
+      "success_rate": 1.0
+    }
+  },
+  "cleanup": {
+    "performed": true,
+    "tenant_pattern": "bench_20260315T144513Z%"
+  }
+}

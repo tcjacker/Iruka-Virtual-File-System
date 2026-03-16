@@ -153,6 +153,8 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
 
     if name == "wc":
         return service._exec_wc(db, session, args, input_text=input_text)
+    if name == "mkdir":
+        return service._exec_mkdir(db, session, args)
     if name == "edit":
         return service._exec_edit(db, session, args)
     if name == "patch":

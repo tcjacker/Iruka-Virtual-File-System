@@ -1,0 +1,1826 @@
+{
+  "generated_at": "2026-03-15T15:37:48.755951+00:00",
+  "database": {
+    "host": "pgm-6we50rtg1rc9d3qtpo.pgsql.japan.rds.aliyuncs.com",
+    "database": "file_sys"
+  },
+  "scenarios": [
+    {
+      "scenario": "baseline",
+      "iterations": 4,
+      "command_summary": {
+        "count": 4,
+        "mean_ms": 2.0988332107663155,
+        "median_ms": 2.2682915441691875,
+        "p95_ms": 2.746583055704832,
+        "p99_ms": 2.755283024162054,
+        "max_ms": 2.7574580162763596
+      },
+      "checkpoint_wait_summary": {
+        "count": 4,
+        "mean_ms": 561.3674272317439,
+        "median_ms": 497.97670845873654,
+        "p95_ms": 741.0667463438585,
+        "p99_ms": 773.0457164207472,
+        "max_ms": 781.0404589399695
+      },
+      "top_phases_overall": [
+        {
+          "role": "checkpoint_worker",
+          "phase": "mirror.flush_workspace_mirror",
+          "count": 4,
+          "mean_ms": 350.43299989774823,
+          "p95_ms": 530.6428062496706,
+          "max_ms": 569.6172500029206,
+          "total_ms": 1401.731999590993
+        },
+        {
+          "role": "main",
+          "phase": "service.ensure_virtual_workspace",
+          "count": 5,
+          "mean_ms": 310.61319150030613,
+          "p95_ms": 1240.8603001385925,
+          "max_ms": 1550.7792918942869,
+          "total_ms": 1553.0659575015306
+        },
+        {
+          "role": "checkpoint_worker",
+          "phase": "sqlalchemy.Session.scalars:sqlalchemy_repositories.py:get_node:154",
+          "count": 4,
+          "mean_ms": 208.52239558007568,
+          "p95_ms": 343.5229766182601,
+          "max_ms": 376.78270787000656,
+          "total_ms": 834.0895823203027
+        },
+        {
+          "role": "command_log_worker",
+          "phase": "repo.bulk_insert_command_logs",
+          "count": 4,
+          "mean_ms": 203.48278153687716,
+          "p95_ms": 207.38511870149523,
+          "max_ms": 207.89162488654256,
+          "total_ms": 813.9311261475086
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.flush:unknown",
+          "count": 1,
+          "mean_ms": 162.6731250435114,
+          "p95_ms": 162.6731250435114,
+          "max_ms": 162.6731250435114,
+          "total_ms": 162.6731250435114
+        },
+        {
+          "role": "command_log_worker",
+          "phase": "sqlalchemy.Session.execute:sqlalchemy_repositories.py:bulk_insert_command_logs:266",
+          "count": 4,
+          "mean_ms": 153.84813526179641,
+          "p95_ms": 158.82908927742392,
+          "max_ms": 159.77270808070898,
+          "total_ms": 615.3925410471857
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.scalars:sqlalchemy_repositories.py:list_workspace_nodes:163",
+          "count": 1,
+          "mean_ms": 152.9302503913641,
+          "p95_ms": 152.9302503913641,
+          "max_ms": 152.9302503913641,
+          "total_ms": 152.9302503913641
+        },
+        {
+          "role": "checkpoint_worker",
+          "phase": "sqlalchemy.Session.commit:workspace_mirror.py:flush_workspace_mirror:798",
+          "count": 4,
+          "mean_ms": 139.67883365694433,
+          "p95_ms": 185.6816360494122,
+          "max_ms": 191.4565423503518,
+          "total_ms": 558.7153346277773
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.execute:unknown",
+          "count": 11,
+          "mean_ms": 121.67910609224981,
+          "p95_ms": 567.1423957683146,
+          "max_ms": 982.0252088829875,
+          "total_ms": 1338.4701670147479
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.commit:unknown",
+          "count": 3,
+          "mean_ms": 103.18966628983617,
+          "p95_ms": 195.4327954445034,
+          "max_ms": 211.6669579409063,
+          "total_ms": 309.5689988695085
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.flush:sqlalchemy_repositories.py:create_session:75",
+          "count": 1,
+          "mean_ms": 98.51933317258954,
+          "p95_ms": 98.51933317258954,
+          "max_ms": 98.51933317258954,
+          "total_ms": 98.51933317258954
+        },
+        {
+          "role": "checkpoint_worker",
+          "phase": "sqlalchemy.Session.flush:workspace_mirror.py:flush_workspace_mirror:798",
+          "count": 4,
+          "mean_ms": 90.20739572588354,
+          "p95_ms": 139.41538338549432,
+          "max_ms": 145.84083342924714,
+          "total_ms": 360.8295829035342
+        },
+        {
+          "role": "main",
+          "phase": "repo.create_node",
+          "count": 9,
+          "mean_ms": 66.49336110179622,
+          "p95_ms": 141.90317485481495,
+          "max_ms": 202.37295795232058,
+          "total_ms": 598.4402499161661
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.flush:sqlalchemy_repositories.py:create_node:150",
+          "count": 9,
+          "mean_ms": 66.3581483790444,
+          "p95_ms": 141.81797523051495,
+          "max_ms": 202.3160420358181,
+          "total_ms": 597.2233354113996
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.scalars:sqlalchemy_repositories.py:get_child:118",
+          "count": 9,
+          "mean_ms": 55.349379674428036,
+          "p95_ms": 81.92190779373048,
+          "max_ms": 101.712207775563,
+          "total_ms": 498.14441706985235
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.scalars:sqlalchemy_repositories.py:get_workspace:18",
+          "count": 1,
+          "mean_ms": 49.99604122713208,
+          "p95_ms": 49.99604122713208,
+          "max_ms": 49.99604122713208,
+          "total_ms": 49.99604122713208
+        },
+        {
+          "role": "command_log_worker",
+          "phase": "sqlalchemy.Session.commit:sqlalchemy_repositories.py:bulk_insert_command_logs:267",
+          "count": 4,
+          "mean_ms": 49.5510206092149,
+          "p95_ms": 51.17920790798962,
+          "max_ms": 51.241207867860794,
+          "total_ms": 198.2040824368596
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.scalars:sqlalchemy_repositories.py:get_active_session:47",
+          "count": 1,
+          "mean_ms": 49.10662490874529,
+          "p95_ms": 49.10662490874529,
+          "max_ms": 49.10662490874529,
+          "total_ms": 49.10662490874529
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.scalars:sqlalchemy_repositories.py:get_root:98",
+          "count": 2,
+          "mean_ms": 48.95199974998832,
+          "p95_ms": 49.67256220988929,
+          "max_ms": 49.752624705433846,
+          "total_ms": 97.90399949997663
+        },
+        {
+          "role": "checkpoint_worker",
+          "phase": "redis.blpop",
+          "count": 8,
+          "mean_ms": 3.9369481382891536,
+          "p95_ms": 13.64066048990935,
+          "max_ms": 14.721999876201153,
+          "total_ms": 31.49558510631323
+        }
+      ],
+      "top_phases_main_thread": [
+        {
+          "role": "main",
+          "phase": "service.ensure_virtual_workspace",
+          "count": 5,
+          "mean_ms": 310.61319150030613,
+          "p95_ms": 1240.8603001385925,
+          "max_ms": 1550.7792918942869,
+          "total_ms": 1553.0659575015306
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.flush:unknown",
+          "count": 1,
+          "mean_ms": 162.6731250435114,
+          "p95_ms": 162.6731250435114,
+          "max_ms": 162.6731250435114,
+          "total_ms": 162.6731250435114
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.scalars:sqlalchemy_repositories.py:list_workspace_nodes:163",
+          "count": 1,
+          "mean_ms": 152.9302503913641,
+          "p95_ms": 152.9302503913641,
+          "max_ms": 152.9302503913641,
+          "total_ms": 152.9302503913641
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.execute:unknown",
+          "count": 11,
+          "mean_ms": 121.67910609224981,
+          "p95_ms": 567.1423957683146,
+          "max_ms": 982.0252088829875,
+          "total_ms": 1338.4701670147479
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.commit:unknown",
+          "count": 3,
+          "mean_ms": 103.18966628983617,
+          "p95_ms": 195.4327954445034,
+          "max_ms": 211.6669579409063,
+          "total_ms": 309.5689988695085
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.flush:sqlalchemy_repositories.py:create_session:75",
+          "count": 1,
+          "mean_ms": 98.51933317258954,
+          "p95_ms": 98.51933317258954,
+          "max_ms": 98.51933317258954,
+          "total_ms": 98.51933317258954
+        },
+        {
+          "role": "main",
+          "phase": "repo.create_node",
+          "count": 9,
+          "mean_ms": 66.49336110179622,
+          "p95_ms": 141.90317485481495,
+          "max_ms": 202.37295795232058,
+          "total_ms": 598.4402499161661
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.flush:sqlalchemy_repositories.py:create_node:150",
+          "count": 9,
+          "mean_ms": 66.3581483790444,
+          "p95_ms": 141.81797523051495,
+          "max_ms": 202.3160420358181,
+          "total_ms": 597.2233354113996
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.scalars:sqlalchemy_repositories.py:get_child:118",
+          "count": 9,
+          "mean_ms": 55.349379674428036,
+          "p95_ms": 81.92190779373048,
+          "max_ms": 101.712207775563,
+          "total_ms": 498.14441706985235
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.scalars:sqlalchemy_repositories.py:get_workspace:18",
+          "count": 1,
+          "mean_ms": 49.99604122713208,
+          "p95_ms": 49.99604122713208,
+          "max_ms": 49.99604122713208,
+          "total_ms": 49.99604122713208
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.scalars:sqlalchemy_repositories.py:get_active_session:47",
+          "count": 1,
+          "mean_ms": 49.10662490874529,
+          "p95_ms": 49.10662490874529,
+          "max_ms": 49.10662490874529,
+          "total_ms": 49.10662490874529
+        },
+        {
+          "role": "main",
+          "phase": "sqlalchemy.Session.scalars:sqlalchemy_repositories.py:get_root:98",
+          "count": 2,
+          "mean_ms": 48.95199974998832,
+          "p95_ms": 49.67256220988929,
+          "max_ms": 49.752624705433846,
+          "total_ms": 97.90399949997663
+        },
+        {
+          "role": "main",
+          "phase": "service.run_virtual_bash",
+          "count": 4,
+          "mean_ms": 2.0881041418761015,
+          "p95_ms": 2.7332328958436847,
+          "max_ms": 2.743207849562168,
+          "total_ms": 8.352416567504406
+        },
+        {
+          "role": "main",
+          "phase": "mirror.load_workspace_mirror",
+          "count": 190,
+          "mean_ms": 0.8406922956438441,
+          "p95_ms": 2.067176788114009,
+          "max_ms": 12.841125018894672,
+          "total_ms": 159.73153617233038
+        },
+        {
+          "role": "main",
+          "phase": "service.set_workspace_mirror",
+          "count": 5,
+          "mean_ms": 0.30489182099699974,
+          "p95_ms": 0.5004252307116984,
+          "max_ms": 0.5600419826805592,
+          "total_ms": 1.5244591049849987
+        },
+        {
+          "role": "main",
+          "phase": "service.run_command_chain",
+          "count": 4,
+          "mean_ms": 0.2664478961378336,
+          "p95_ms": 0.36012488417327404,
+          "max_ms": 0.36349985748529434,
+          "total_ms": 1.0657915845513344
+        },
+        {
+          "role": "main",
+          "phase": "service.exec_edit",
+          "count": 4,
+          "mean_ms": 0.12980203609913588,
+          "p95_ms": 0.18638749606907365,
+          "max_ms": 0.1966250129044056,
+          "total_ms": 0.5192081443965435
+        },
+        {
+          "role": "main",
+          "phase": "service.ensure_async_log_worker",
+          "count": 4,
+          "mean_ms": 0.03833347000181675,
+          "p95_ms": 0.1234297407791018,
+          "max_ms": 0.14416733756661415,
+          "total_ms": 0.153333880007267
+        },
+        {
+          "role": "main",
+          "phase": "service.ensure_workspace_checkpoint_worker",
+          "count": 4,
+          "mean_ms": 0.032052164897322655,
+          "p95_ms": 0.10653918143361803,
+          "max_ms": 0.12508267536759377,
+          "total_ms": 0.12820865958929062
+        },
+        {
+          "role": "main",
+          "phase": "mirror.enqueue_checkpoint",
+          "count": 4,
+          "mean_ms": 0.021770596504211426,
+          "p95_ms": 0.028856052085757252,
+          "max_ms": 0.029999762773513794,
+          "total_ms": 0.0870823860168457
+        }
+      ],
+      "top_phases_checkpoint_worker": [
+        {
+          "role": "checkpoint_worker",
+          "phase": "mirror.flush_workspace_mirror",
+          "count": 4,
+          "mean_ms": 350.43299989774823,
+          "p95_ms": 530.6428062496706,
+          "max_ms": 569.6172500029206,
+          "total_ms": 1401.731999590993
+        },
+        {
+          "role": "checkpoint_worker",
+          "phase": "sqlalchemy.Session.scalars:sqlalchemy_repositories.py:get_node:154",
+          "count": 4,
+          "mean_ms": 208.52239558007568,
+          "p95_ms": 343.5229766182601,
+          "max_ms": 376.78270787000656,
+          "total_ms": 834.0895823203027
+        },
+        {
+          "role": "checkpoint_worker",
+          "phase": "sqlalchemy.Session.commit:workspace_mirror.py:flush_workspace_mirror:798",
+          "count": 4,
+          "mean_ms": 139.67883365694433,
+          "p95_ms": 185.6816360494122,
+          "max_ms": 191.4565423503518,
+          "total_ms": 558.7153346277773
+        },
+        {
+          "role": "checkpoint_worker",
+          "phase": "sqlalchemy.Session.flush:workspace_mirror.py:flush_workspace_mirror:798",
+          "count": 4,
+          "mean_ms": 90.20739572588354,
+          "p95_ms": 139.41538338549432,
+          "max_ms": 145.84083342924714,
+          "total_ms": 360.8295829035342
+        },
+        {
+          "role": "checkpoint_worker",
+          "phase": "redis.blpop",
+          "count": 8,
+          "mean_ms": 3.9369481382891536,
+          "p95_ms": 13.64066048990935,
+          "max_ms": 14.721999876201153,
+          "total_ms": 31.49558510631323
+        },
+        {
+          "role": "checkpoint_worker",
+          "phase": "mirror.load_workspace_mirror",
+          "count": 12,
+          "mean_ms": 0.507496646605432,
+          "p95_ms": 1.2330023106187573,
+          "max_ms": 1.9779996946454048,
+          "total_ms": 6.089959759265184
+        },
+        {
+          "role": "checkpoint_worker",
+          "phase": "mirror.set_workspace_mirror",
+          "count": 4,
+          "mean_ms": 0.2772605512291193,
+          "p95_ms": 0.38671069778501976,
+          "max_ms": 0.4127919673919678,
+          "total_ms": 1.1090422049164772
+        },
+        {
+          "role": "checkpoint_worker",
+          "phase": "redis.rpush",
+          "count": 4,
+          "mean_ms": 0.013374839909374714,
+          "p95_ms": 0.015668594278395176,
+          "max_ms": 0.01587485894560814,
+          "total_ms": 0.053499359637498856
+        },
+        {
+          "role": "checkpoint_worker",
+          "phase": "redis.lock.acquire",
+          "count": 4,
+          "mean_ms": 0.0038227299228310585,
+          "p95_ms": 0.006881216540932654,
+          "max_ms": 0.0074999406933784485,
+          "total_ms": 0.015290919691324234
+        },
+        {
+          "role": "checkpoint_worker",
+          "phase": "redis.srem",
+          "count": 8,
+          "mean_ms": 0.0011093216016888618,
+          "p95_ms": 0.0025421148166060443,
+          "max_ms": 0.002834014594554901,
+          "total_ms": 0.008874572813510895
+        },
+        {
+          "role": "checkpoint_worker",
+          "phase": "redis.delete",
+          "count": 12,
+          "mean_ms": 0.0009444775059819221,
+          "p95_ms": 0.002291752025485038,
+          "max_ms": 0.002750195562839508,
+          "total_ms": 0.011333730071783066
+        },
+        {
+          "role": "checkpoint_worker",
+          "phase": "redis.set",
+          "count": 12,
+          "mean_ms": 0.0007949226225415865,
+          "p95_ms": 0.0014263903722167015,
+          "max_ms": 0.0015408731997013092,
+          "total_ms": 0.009539071470499039
+        },
+        {
+          "role": "checkpoint_worker",
+          "phase": "redis.get",
+          "count": 44,
+          "mean_ms": 0.0006003326482393525,
+          "p95_ms": 0.0016540987417101862,
+          "max_ms": 0.003582797944545746,
+          "total_ms": 0.02641463652253151
+        }
+      ],
+      "iterations_detail": [
+        {
+          "iteration": 0,
+          "command": "edit /workspace/chapters/chapter_1.md --find MARKER_000 --replace MARKER_001",
+          "command_ms": 1.851624809205532,
+          "checkpoint_wait_ms": 514.5490416325629,
+          "checkpoint_caught_up": true,
+          "target_revision": 2,
+          "checkpoint_revision": 2,
+          "command_phases": [
+            {
+              "role": "main",
+              "phase": "service.run_virtual_bash",
+              "count": 1,
+              "mean_ms": 1.8369583413004875,
+              "p95_ms": 1.8369583413004875,
+              "max_ms": 1.8369583413004875,
+              "total_ms": 1.8369583413004875
+            },
+            {
+              "role": "main",
+              "phase": "service.ensure_virtual_workspace",
+              "count": 1,
+              "mean_ms": 0.3631659783422947,
+              "p95_ms": 0.3631659783422947,
+              "max_ms": 0.3631659783422947,
+              "total_ms": 0.3631659783422947
+            },
+            {
+              "role": "main",
+              "phase": "service.run_command_chain",
+              "count": 1,
+              "mean_ms": 0.341000035405159,
+              "p95_ms": 0.341000035405159,
+              "max_ms": 0.341000035405159,
+              "total_ms": 0.341000035405159
+            },
+            {
+              "role": "main",
+              "phase": "service.set_workspace_mirror",
+              "count": 1,
+              "mean_ms": 0.2569998614490032,
+              "p95_ms": 0.2569998614490032,
+              "max_ms": 0.2569998614490032,
+              "total_ms": 0.2569998614490032
+            },
+            {
+              "role": "main",
+              "phase": "mirror.load_workspace_mirror",
+              "count": 3,
+              "mean_ms": 0.22795874004562697,
+              "p95_ms": 0.2972419373691082,
+              "max_ms": 0.3089169040322304,
+              "total_ms": 0.6838762201368809
+            },
+            {
+              "role": "main",
+              "phase": "service.ensure_async_log_worker",
+              "count": 1,
+              "mean_ms": 0.14416733756661415,
+              "p95_ms": 0.14416733756661415,
+              "max_ms": 0.14416733756661415,
+              "total_ms": 0.14416733756661415
+            },
+            {
+              "role": "main",
+              "phase": "service.exec_edit",
+              "count": 1,
+              "mean_ms": 0.12837490066885948,
+              "p95_ms": 0.12837490066885948,
+              "max_ms": 0.12837490066885948,
+              "total_ms": 0.12837490066885948
+            },
+            {
+              "role": "main",
+              "phase": "service.ensure_workspace_checkpoint_worker",
+              "count": 1,
+              "mean_ms": 0.12508267536759377,
+              "p95_ms": 0.12508267536759377,
+              "max_ms": 0.12508267536759377,
+              "total_ms": 0.12508267536759377
+            },
+            {
+              "role": "main",
+              "phase": "service.ensure_mem_cache_worker",
+              "count": 1,
+              "mean_ms": 0.05933409556746483,
+              "p95_ms": 0.05933409556746483,
+              "max_ms": 0.05933409556746483,
+              "total_ms": 0.05933409556746483
+            },
+            {
+              "role": "main",
+              "phase": "mirror.enqueue_checkpoint",
+              "count": 1,
+              "mean_ms": 0.02237502485513687,
+              "p95_ms": 0.02237502485513687,
+              "max_ms": 0.02237502485513687,
+              "total_ms": 0.02237502485513687
+            },
+            {
+              "role": "main",
+              "phase": "service.prepare_log_artifacts",
+              "count": 1,
+              "mean_ms": 0.018207821995019913,
+              "p95_ms": 0.018207821995019913,
+              "max_ms": 0.018207821995019913,
+              "total_ms": 0.018207821995019913
+            },
+            {
+              "role": "main",
+              "phase": "service.write_file",
+              "count": 1,
+              "mean_ms": 0.016791746020317078,
+              "p95_ms": 0.016791746020317078,
+              "max_ms": 0.016791746020317078,
+              "total_ms": 0.016791746020317078
+            },
+            {
+              "role": "main",
+              "phase": "redis.rpush",
+              "count": 1,
+              "mean_ms": 0.0040833838284015656,
+              "p95_ms": 0.0040833838284015656,
+              "max_ms": 0.0040833838284015656,
+              "total_ms": 0.0040833838284015656
+            },
+            {
+              "role": "main",
+              "phase": "redis.lock.acquire",
+              "count": 1,
+              "mean_ms": 0.0021667219698429108,
+              "p95_ms": 0.0021667219698429108,
+              "max_ms": 0.0021667219698429108,
+              "total_ms": 0.0021667219698429108
+            },
+            {
+              "role": "main",
+              "phase": "redis.sadd",
+              "count": 2,
+              "mean_ms": 0.001125037670135498,
+              "p95_ms": 0.0013878103345632553,
+              "max_ms": 0.0014170072972774506,
+              "total_ms": 0.002250075340270996
+            },
+            {
+              "role": "main",
+              "phase": "redis.get",
+              "count": 13,
+              "mean_ms": 0.0003300822125031398,
+              "p95_ms": 0.0007335096597671503,
+              "max_ms": 0.0009592622518539429,
+              "total_ms": 0.004291068762540817
+            },
+            {
+              "role": "main",
+              "phase": "redis.set",
+              "count": 4,
+              "mean_ms": 0.0003019813448190689,
+              "p95_ms": 0.0004336703568696975,
+              "max_ms": 0.00045867636799812317,
+              "total_ms": 0.0012079253792762756
+            }
+          ],
+          "post_return_phases": [
+            {
+              "role": "checkpoint_worker",
+              "phase": "mirror.flush_workspace_mirror",
+              "count": 1,
+              "mean_ms": 309.78762498125434,
+              "p95_ms": 309.78762498125434,
+              "max_ms": 309.78762498125434,
+              "total_ms": 309.78762498125434
+            },
+            {
+              "role": "command_log_worker",
+              "phase": "repo.bulk_insert_command_logs",
+              "count": 1,
+              "mean_ms": 203.8295422680676,
+              "p95_ms": 203.8295422680676,
+              "max_ms": 203.8295422680676,
+              "total_ms": 203.8295422680676
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "sqlalchemy.Session.scalars:sqlalchemy_repositories.py:get_node:154",
+              "count": 1,
+              "mean_ms": 155.05116619169712,
+              "p95_ms": 155.05116619169712,
+              "max_ms": 155.05116619169712,
+              "total_ms": 155.05116619169712
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "sqlalchemy.Session.commit:workspace_mirror.py:flush_workspace_mirror:798",
+              "count": 1,
+              "mean_ms": 152.95716701075435,
+              "p95_ms": 152.95716701075435,
+              "max_ms": 152.95716701075435,
+              "total_ms": 152.95716701075435
+            },
+            {
+              "role": "command_log_worker",
+              "phase": "sqlalchemy.Session.execute:sqlalchemy_repositories.py:bulk_insert_command_logs:266",
+              "count": 1,
+              "mean_ms": 152.54137525334954,
+              "p95_ms": 152.54137525334954,
+              "max_ms": 152.54137525334954,
+              "total_ms": 152.54137525334954
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "sqlalchemy.Session.flush:workspace_mirror.py:flush_workspace_mirror:798",
+              "count": 1,
+              "mean_ms": 103.00449980422854,
+              "p95_ms": 103.00449980422854,
+              "max_ms": 103.00449980422854,
+              "total_ms": 103.00449980422854
+            },
+            {
+              "role": "command_log_worker",
+              "phase": "sqlalchemy.Session.commit:sqlalchemy_repositories.py:bulk_insert_command_logs:267",
+              "count": 1,
+              "mean_ms": 51.241207867860794,
+              "p95_ms": 51.241207867860794,
+              "max_ms": 51.241207867860794,
+              "total_ms": 51.241207867860794
+            },
+            {
+              "role": "main",
+              "phase": "mirror.load_workspace_mirror",
+              "count": 40,
+              "mean_ms": 1.109039573930204,
+              "p95_ms": 2.168651483952997,
+              "max_ms": 5.198250059038401,
+              "total_ms": 44.36158295720816
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "mirror.load_workspace_mirror",
+              "count": 3,
+              "mean_ms": 0.4770558637877305,
+              "p95_ms": 0.6079714745283127,
+              "max_ms": 0.6234589964151382,
+              "total_ms": 1.4311675913631916
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "mirror.set_workspace_mirror",
+              "count": 1,
+              "mean_ms": 0.4127919673919678,
+              "p95_ms": 0.4127919673919678,
+              "max_ms": 0.4127919673919678,
+              "total_ms": 0.4127919673919678
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.rpush",
+              "count": 1,
+              "mean_ms": 0.01587485894560814,
+              "p95_ms": 0.01587485894560814,
+              "max_ms": 0.01587485894560814,
+              "total_ms": 0.01587485894560814
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.blpop",
+              "count": 1,
+              "mean_ms": 0.005417037755250931,
+              "p95_ms": 0.005417037755250931,
+              "max_ms": 0.005417037755250931,
+              "total_ms": 0.005417037755250931
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.lock.acquire",
+              "count": 1,
+              "mean_ms": 0.003375113010406494,
+              "p95_ms": 0.003375113010406494,
+              "max_ms": 0.003375113010406494,
+              "total_ms": 0.003375113010406494
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.srem",
+              "count": 2,
+              "mean_ms": 0.0024170149117708206,
+              "p95_ms": 0.002792314626276493,
+              "max_ms": 0.002834014594554901,
+              "total_ms": 0.004834029823541641
+            },
+            {
+              "role": "main",
+              "phase": "redis.get",
+              "count": 160,
+              "mean_ms": 0.0016234669601544738,
+              "p95_ms": 0.005260319449007508,
+              "max_ms": 0.007666647434234619,
+              "total_ms": 0.2597547136247158
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.delete",
+              "count": 3,
+              "mean_ms": 0.0013476237654685974,
+              "p95_ms": 0.0025669112801551815,
+              "max_ms": 0.002750195562839508,
+              "total_ms": 0.004042871296405792
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.set",
+              "count": 3,
+              "mean_ms": 0.0011383866270383198,
+              "p95_ms": 0.0014909077435731886,
+              "max_ms": 0.0015408731997013092,
+              "total_ms": 0.0034151598811149597
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.get",
+              "count": 11,
+              "mean_ms": 0.0005415217442946,
+              "p95_ms": 0.0008328352123498917,
+              "max_ms": 0.0008330680429935455,
+              "total_ms": 0.005956739187240601
+            }
+          ]
+        },
+        {
+          "iteration": 1,
+          "command": "edit /workspace/chapters/chapter_1.md --find MARKER_001 --replace MARKER_002",
+          "command_ms": 1.1012917384505272,
+          "checkpoint_wait_ms": 468.4758330695331,
+          "checkpoint_caught_up": true,
+          "target_revision": 3,
+          "checkpoint_revision": 3,
+          "command_phases": [
+            {
+              "role": "main",
+              "phase": "service.run_virtual_bash",
+              "count": 1,
+              "mean_ms": 1.0955422185361385,
+              "p95_ms": 1.0955422185361385,
+              "max_ms": 1.0955422185361385,
+              "total_ms": 1.0955422185361385
+            },
+            {
+              "role": "main",
+              "phase": "service.ensure_virtual_workspace",
+              "count": 1,
+              "mean_ms": 0.2266247756779194,
+              "p95_ms": 0.2266247756779194,
+              "max_ms": 0.2266247756779194,
+              "total_ms": 0.2266247756779194
+            },
+            {
+              "role": "main",
+              "phase": "service.set_workspace_mirror",
+              "count": 1,
+              "mean_ms": 0.22066710516810417,
+              "p95_ms": 0.22066710516810417,
+              "max_ms": 0.22066710516810417,
+              "total_ms": 0.22066710516810417
+            },
+            {
+              "role": "main",
+              "phase": "mirror.load_workspace_mirror",
+              "count": 3,
+              "mean_ms": 0.18762502198417982,
+              "p95_ms": 0.19498304463922977,
+              "max_ms": 0.19591627642512321,
+              "total_ms": 0.5628750659525394
+            },
+            {
+              "role": "main",
+              "phase": "service.run_command_chain",
+              "count": 1,
+              "mean_ms": 0.1721666194498539,
+              "p95_ms": 0.1721666194498539,
+              "max_ms": 0.1721666194498539,
+              "total_ms": 0.1721666194498539
+            },
+            {
+              "role": "main",
+              "phase": "service.exec_edit",
+              "count": 1,
+              "mean_ms": 0.09291619062423706,
+              "p95_ms": 0.09291619062423706,
+              "max_ms": 0.09291619062423706,
+              "total_ms": 0.09291619062423706
+            },
+            {
+              "role": "main",
+              "phase": "mirror.enqueue_checkpoint",
+              "count": 1,
+              "mean_ms": 0.018999911844730377,
+              "p95_ms": 0.018999911844730377,
+              "max_ms": 0.018999911844730377,
+              "total_ms": 0.018999911844730377
+            },
+            {
+              "role": "main",
+              "phase": "redis.rpush",
+              "count": 1,
+              "mean_ms": 0.011290889233350754,
+              "p95_ms": 0.011290889233350754,
+              "max_ms": 0.011290889233350754,
+              "total_ms": 0.011290889233350754
+            },
+            {
+              "role": "main",
+              "phase": "service.write_file",
+              "count": 1,
+              "mean_ms": 0.011040829122066498,
+              "p95_ms": 0.011040829122066498,
+              "max_ms": 0.011040829122066498,
+              "total_ms": 0.011040829122066498
+            },
+            {
+              "role": "main",
+              "phase": "service.prepare_log_artifacts",
+              "count": 1,
+              "mean_ms": 0.007417052984237671,
+              "p95_ms": 0.007417052984237671,
+              "max_ms": 0.007417052984237671,
+              "total_ms": 0.007417052984237671
+            },
+            {
+              "role": "main",
+              "phase": "redis.lock.acquire",
+              "count": 1,
+              "mean_ms": 0.001666136085987091,
+              "p95_ms": 0.001666136085987091,
+              "max_ms": 0.001666136085987091,
+              "total_ms": 0.001666136085987091
+            },
+            {
+              "role": "main",
+              "phase": "service.ensure_async_log_worker",
+              "count": 1,
+              "mean_ms": 0.001416075974702835,
+              "p95_ms": 0.001416075974702835,
+              "max_ms": 0.001416075974702835,
+              "total_ms": 0.001416075974702835
+            },
+            {
+              "role": "main",
+              "phase": "service.ensure_mem_cache_worker",
+              "count": 1,
+              "mean_ms": 0.0008749775588512421,
+              "p95_ms": 0.0008749775588512421,
+              "max_ms": 0.0008749775588512421,
+              "total_ms": 0.0008749775588512421
+            },
+            {
+              "role": "main",
+              "phase": "service.ensure_workspace_checkpoint_worker",
+              "count": 1,
+              "mean_ms": 0.0007916241884231567,
+              "p95_ms": 0.0007916241884231567,
+              "max_ms": 0.0007916241884231567,
+              "total_ms": 0.0007916241884231567
+            },
+            {
+              "role": "main",
+              "phase": "redis.sadd",
+              "count": 2,
+              "mean_ms": 0.0006249174475669861,
+              "p95_ms": 0.0008499715477228165,
+              "max_ms": 0.0008749775588512421,
+              "total_ms": 0.0012498348951339722
+            },
+            {
+              "role": "main",
+              "phase": "redis.set",
+              "count": 4,
+              "mean_ms": 0.00033318065106868744,
+              "p95_ms": 0.0004100846126675606,
+              "max_ms": 0.0004163011908531189,
+              "total_ms": 0.0013327226042747498
+            },
+            {
+              "role": "main",
+              "phase": "redis.get",
+              "count": 13,
+              "mean_ms": 0.00022115329137215248,
+              "p95_ms": 0.0003001652657985685,
+              "max_ms": 0.00037532299757003784,
+              "total_ms": 0.002874992787837982
+            }
+          ],
+          "post_return_phases": [
+            {
+              "role": "checkpoint_worker",
+              "phase": "mirror.flush_workspace_mirror",
+              "count": 1,
+              "mean_ms": 256.1834999360144,
+              "p95_ms": 256.1834999360144,
+              "max_ms": 256.1834999360144,
+              "total_ms": 256.1834999360144
+            },
+            {
+              "role": "command_log_worker",
+              "phase": "repo.bulk_insert_command_logs",
+              "count": 1,
+              "mean_ms": 197.69504200667143,
+              "p95_ms": 197.69504200667143,
+              "max_ms": 197.69504200667143,
+              "total_ms": 197.69504200667143
+            },
+            {
+              "role": "command_log_worker",
+              "phase": "sqlalchemy.Session.execute:sqlalchemy_repositories.py:bulk_insert_command_logs:266",
+              "count": 1,
+              "mean_ms": 149.59654165431857,
+              "p95_ms": 149.59654165431857,
+              "max_ms": 149.59654165431857,
+              "total_ms": 149.59654165431857
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "sqlalchemy.Session.scalars:sqlalchemy_repositories.py:get_node:154",
+              "count": 1,
+              "mean_ms": 149.52566707506776,
+              "p95_ms": 149.52566707506776,
+              "max_ms": 149.52566707506776,
+              "total_ms": 149.52566707506776
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "sqlalchemy.Session.commit:workspace_mirror.py:flush_workspace_mirror:798",
+              "count": 1,
+              "mean_ms": 105.24949990212917,
+              "p95_ms": 105.24949990212917,
+              "max_ms": 105.24949990212917,
+              "total_ms": 105.24949990212917
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "sqlalchemy.Session.flush:workspace_mirror.py:flush_workspace_mirror:798",
+              "count": 1,
+              "mean_ms": 55.4283750243485,
+              "p95_ms": 55.4283750243485,
+              "max_ms": 55.4283750243485,
+              "total_ms": 55.4283750243485
+            },
+            {
+              "role": "command_log_worker",
+              "phase": "sqlalchemy.Session.commit:sqlalchemy_repositories.py:bulk_insert_command_logs:267",
+              "count": 1,
+              "mean_ms": 48.059791792184114,
+              "p95_ms": 48.059791792184114,
+              "max_ms": 48.059791792184114,
+              "total_ms": 48.059791792184114
+            },
+            {
+              "role": "main",
+              "phase": "mirror.load_workspace_mirror",
+              "count": 38,
+              "mean_ms": 0.595629350037167,
+              "p95_ms": 0.9837954537943006,
+              "max_ms": 3.8680830039083958,
+              "total_ms": 22.633915301412344
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "mirror.load_workspace_mirror",
+              "count": 3,
+              "mean_ms": 0.35458353037635487,
+              "p95_ms": 0.5046292673796415,
+              "max_ms": 0.5223751068115234,
+              "total_ms": 1.0637505911290646
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "mirror.set_workspace_mirror",
+              "count": 1,
+              "mean_ms": 0.23579131811857224,
+              "p95_ms": 0.23579131811857224,
+              "max_ms": 0.23579131811857224,
+              "total_ms": 0.23579131811857224
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.rpush",
+              "count": 1,
+              "mean_ms": 0.008666887879371643,
+              "p95_ms": 0.008666887879371643,
+              "max_ms": 0.008666887879371643,
+              "total_ms": 0.008666887879371643
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.blpop",
+              "count": 1,
+              "mean_ms": 0.003041699528694153,
+              "p95_ms": 0.003041699528694153,
+              "max_ms": 0.003041699528694153,
+              "total_ms": 0.003041699528694153
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.lock.acquire",
+              "count": 1,
+              "mean_ms": 0.001916196197271347,
+              "p95_ms": 0.001916196197271347,
+              "max_ms": 0.001916196197271347,
+              "total_ms": 0.001916196197271347
+            },
+            {
+              "role": "main",
+              "phase": "redis.get",
+              "count": 152,
+              "mean_ms": 0.0010299171615195902,
+              "p95_ms": 0.0029498012736439688,
+              "max_ms": 0.005041249096393585,
+              "total_ms": 0.1565474085509777
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.delete",
+              "count": 3,
+              "mean_ms": 0.0007636845111846924,
+              "p95_ms": 0.001532817259430885,
+              "max_ms": 0.001666136085987091,
+              "total_ms": 0.002291053533554077
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.set",
+              "count": 3,
+              "mean_ms": 0.0006247622271378835,
+              "p95_ms": 0.000875163823366165,
+              "max_ms": 0.0009168870747089386,
+              "total_ms": 0.0018742866814136505
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.srem",
+              "count": 2,
+              "mean_ms": 0.0006244517862796783,
+              "p95_ms": 0.0008122064173221588,
+              "max_ms": 0.0008330680429935455,
+              "total_ms": 0.0012489035725593567
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.get",
+              "count": 11,
+              "mean_ms": 0.0003332864831794392,
+              "p95_ms": 0.0006044283509254456,
+              "max_ms": 0.0006668269634246826,
+              "total_ms": 0.003666151314973831
+            }
+          ]
+        },
+        {
+          "iteration": 2,
+          "command": "edit /workspace/chapters/chapter_1.md --find MARKER_002 --replace MARKER_003",
+          "command_ms": 2.684958279132843,
+          "checkpoint_wait_ms": 481.4043752849102,
+          "checkpoint_caught_up": true,
+          "target_revision": 4,
+          "checkpoint_revision": 4,
+          "command_phases": [
+            {
+              "role": "main",
+              "phase": "service.run_virtual_bash",
+              "count": 1,
+              "mean_ms": 2.676708158105612,
+              "p95_ms": 2.676708158105612,
+              "max_ms": 2.676708158105612,
+              "total_ms": 2.676708158105612
+            },
+            {
+              "role": "main",
+              "phase": "service.set_workspace_mirror",
+              "count": 1,
+              "mean_ms": 0.5600419826805592,
+              "p95_ms": 0.5600419826805592,
+              "max_ms": 0.5600419826805592,
+              "total_ms": 0.5600419826805592
+            },
+            {
+              "role": "main",
+              "phase": "service.ensure_virtual_workspace",
+              "count": 1,
+              "mean_ms": 0.5125417374074459,
+              "p95_ms": 0.5125417374074459,
+              "max_ms": 0.5125417374074459,
+              "total_ms": 0.5125417374074459
+            },
+            {
+              "role": "main",
+              "phase": "mirror.load_workspace_mirror",
+              "count": 3,
+              "mean_ms": 0.4583060120542844,
+              "p95_ms": 0.4646796267479658,
+              "max_ms": 0.46579213812947273,
+              "total_ms": 1.3749180361628532
+            },
+            {
+              "role": "main",
+              "phase": "service.run_command_chain",
+              "count": 1,
+              "mean_ms": 0.36349985748529434,
+              "p95_ms": 0.36349985748529434,
+              "max_ms": 0.36349985748529434,
+              "total_ms": 0.36349985748529434
+            },
+            {
+              "role": "main",
+              "phase": "service.exec_edit",
+              "count": 1,
+              "mean_ms": 0.1966250129044056,
+              "p95_ms": 0.1966250129044056,
+              "max_ms": 0.1966250129044056,
+              "total_ms": 0.1966250129044056
+            },
+            {
+              "role": "main",
+              "phase": "mirror.enqueue_checkpoint",
+              "count": 1,
+              "mean_ms": 0.029999762773513794,
+              "p95_ms": 0.029999762773513794,
+              "max_ms": 0.029999762773513794,
+              "total_ms": 0.029999762773513794
+            },
+            {
+              "role": "main",
+              "phase": "service.write_file",
+              "count": 1,
+              "mean_ms": 0.01904228702187538,
+              "p95_ms": 0.01904228702187538,
+              "max_ms": 0.01904228702187538,
+              "total_ms": 0.01904228702187538
+            },
+            {
+              "role": "main",
+              "phase": "redis.rpush",
+              "count": 1,
+              "mean_ms": 0.014416873455047607,
+              "p95_ms": 0.014416873455047607,
+              "max_ms": 0.014416873455047607,
+              "total_ms": 0.014416873455047607
+            },
+            {
+              "role": "main",
+              "phase": "service.prepare_log_artifacts",
+              "count": 1,
+              "mean_ms": 0.012500211596488953,
+              "p95_ms": 0.012500211596488953,
+              "max_ms": 0.012500211596488953,
+              "total_ms": 0.012500211596488953
+            },
+            {
+              "role": "main",
+              "phase": "redis.sadd",
+              "count": 2,
+              "mean_ms": 0.004395842552185059,
+              "p95_ms": 0.007452303543686867,
+              "max_ms": 0.007791910320520401,
+              "total_ms": 0.008791685104370117
+            },
+            {
+              "role": "main",
+              "phase": "redis.lock.acquire",
+              "count": 1,
+              "mean_ms": 0.004083849489688873,
+              "p95_ms": 0.004083849489688873,
+              "max_ms": 0.004083849489688873,
+              "total_ms": 0.004083849489688873
+            },
+            {
+              "role": "main",
+              "phase": "service.ensure_async_log_worker",
+              "count": 1,
+              "mean_ms": 0.0018337741494178772,
+              "p95_ms": 0.0018337741494178772,
+              "max_ms": 0.0018337741494178772,
+              "total_ms": 0.0018337741494178772
+            },
+            {
+              "role": "main",
+              "phase": "service.ensure_mem_cache_worker",
+              "count": 1,
+              "mean_ms": 0.0012917444109916687,
+              "p95_ms": 0.0012917444109916687,
+              "max_ms": 0.0012917444109916687,
+              "total_ms": 0.0012917444109916687
+            },
+            {
+              "role": "main",
+              "phase": "service.ensure_workspace_checkpoint_worker",
+              "count": 1,
+              "mean_ms": 0.0008749775588512421,
+              "p95_ms": 0.0008749775588512421,
+              "max_ms": 0.0008749775588512421,
+              "total_ms": 0.0008749775588512421
+            },
+            {
+              "role": "main",
+              "phase": "redis.set",
+              "count": 4,
+              "mean_ms": 0.0007292255759239197,
+              "p95_ms": 0.0008686911314725876,
+              "max_ms": 0.0008749775588512421,
+              "total_ms": 0.0029169023036956787
+            },
+            {
+              "role": "main",
+              "phase": "redis.get",
+              "count": 13,
+              "mean_ms": 0.00047766102048066945,
+              "p95_ms": 0.0006171874701976775,
+              "max_ms": 0.0006663613021373749,
+              "total_ms": 0.006209593266248703
+            }
+          ],
+          "post_return_phases": [
+            {
+              "role": "checkpoint_worker",
+              "phase": "mirror.flush_workspace_mirror",
+              "count": 1,
+              "mean_ms": 266.14362467080355,
+              "p95_ms": 266.14362467080355,
+              "max_ms": 266.14362467080355,
+              "total_ms": 266.14362467080355
+            },
+            {
+              "role": "command_log_worker",
+              "phase": "repo.bulk_insert_command_logs",
+              "count": 1,
+              "mean_ms": 204.51491698622704,
+              "p95_ms": 204.51491698622704,
+              "max_ms": 204.51491698622704,
+              "total_ms": 204.51491698622704
+            },
+            {
+              "role": "command_log_worker",
+              "phase": "sqlalchemy.Session.execute:sqlalchemy_repositories.py:bulk_insert_command_logs:266",
+              "count": 1,
+              "mean_ms": 153.48191605880857,
+              "p95_ms": 153.48191605880857,
+              "max_ms": 153.48191605880857,
+              "total_ms": 153.48191605880857
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "sqlalchemy.Session.scalars:sqlalchemy_repositories.py:get_node:154",
+              "count": 1,
+              "mean_ms": 152.73004118353128,
+              "p95_ms": 152.73004118353128,
+              "max_ms": 152.73004118353128,
+              "total_ms": 152.73004118353128
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "sqlalchemy.Session.commit:workspace_mirror.py:flush_workspace_mirror:798",
+              "count": 1,
+              "mean_ms": 109.05212536454201,
+              "p95_ms": 109.05212536454201,
+              "max_ms": 109.05212536454201,
+              "total_ms": 109.05212536454201
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "sqlalchemy.Session.flush:workspace_mirror.py:flush_workspace_mirror:798",
+              "count": 1,
+              "mean_ms": 56.55587464570999,
+              "p95_ms": 56.55587464570999,
+              "max_ms": 56.55587464570999,
+              "total_ms": 56.55587464570999
+            },
+            {
+              "role": "command_log_worker",
+              "phase": "sqlalchemy.Session.commit:sqlalchemy_repositories.py:bulk_insert_command_logs:267",
+              "count": 1,
+              "mean_ms": 50.827874802052975,
+              "p95_ms": 50.827874802052975,
+              "max_ms": 50.827874802052975,
+              "total_ms": 50.827874802052975
+            },
+            {
+              "role": "main",
+              "phase": "mirror.load_workspace_mirror",
+              "count": 38,
+              "mean_ms": 1.1538727650124776,
+              "p95_ms": 2.465383009985089,
+              "max_ms": 5.924750119447708,
+              "total_ms": 43.84716507047415
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "mirror.load_workspace_mirror",
+              "count": 3,
+              "mean_ms": 0.8248194741706053,
+              "p95_ms": 1.8116331193596122,
+              "max_ms": 1.9779996946454048,
+              "total_ms": 2.474458422511816
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "mirror.set_workspace_mirror",
+              "count": 1,
+              "mean_ms": 0.2215420827269554,
+              "p95_ms": 0.2215420827269554,
+              "max_ms": 0.2215420827269554,
+              "total_ms": 0.2215420827269554
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.blpop",
+              "count": 1,
+              "mean_ms": 0.01529185101389885,
+              "p95_ms": 0.01529185101389885,
+              "max_ms": 0.01529185101389885,
+              "total_ms": 0.01529185101389885
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.rpush",
+              "count": 1,
+              "mean_ms": 0.014457851648330688,
+              "p95_ms": 0.014457851648330688,
+              "max_ms": 0.014457851648330688,
+              "total_ms": 0.014457851648330688
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.lock.acquire",
+              "count": 1,
+              "mean_ms": 0.0074999406933784485,
+              "p95_ms": 0.0074999406933784485,
+              "max_ms": 0.0074999406933784485,
+              "total_ms": 0.0074999406933784485
+            },
+            {
+              "role": "main",
+              "phase": "redis.get",
+              "count": 152,
+              "mean_ms": 0.0033478197445602795,
+              "p95_ms": 0.00538518652319908,
+              "max_ms": 0.19612489268183708,
+              "total_ms": 0.5088686011731625
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.get",
+              "count": 11,
+              "mean_ms": 0.0009999017823826182,
+              "p95_ms": 0.002729007974267006,
+              "max_ms": 0.003582797944545746,
+              "total_ms": 0.010998919606208801
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.delete",
+              "count": 3,
+              "mean_ms": 0.0007779647906621298,
+              "p95_ms": 0.0016041565686464308,
+              "max_ms": 0.0017499551177024841,
+              "total_ms": 0.002333894371986389
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.set",
+              "count": 3,
+              "mean_ms": 0.000653012345234553,
+              "p95_ms": 0.0009879469871520996,
+              "max_ms": 0.0010421499609947205,
+              "total_ms": 0.001959037035703659
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.srem",
+              "count": 2,
+              "mean_ms": 0.0006039626896381378,
+              "p95_ms": 0.0007732771337032318,
+              "max_ms": 0.0007920898497104645,
+              "total_ms": 0.0012079253792762756
+            }
+          ]
+        },
+        {
+          "iteration": 3,
+          "command": "edit /workspace/chapters/chapter_1.md --find MARKER_003 --replace MARKER_004",
+          "command_ms": 2.7574580162763596,
+          "checkpoint_wait_ms": 781.0404589399695,
+          "checkpoint_caught_up": true,
+          "target_revision": 5,
+          "checkpoint_revision": 5,
+          "command_phases": [
+            {
+              "role": "main",
+              "phase": "service.run_virtual_bash",
+              "count": 1,
+              "mean_ms": 2.743207849562168,
+              "p95_ms": 2.743207849562168,
+              "max_ms": 2.743207849562168,
+              "total_ms": 2.743207849562168
+            },
+            {
+              "role": "main",
+              "phase": "service.ensure_virtual_workspace",
+              "count": 1,
+              "mean_ms": 1.1843331158161163,
+              "p95_ms": 1.1843331158161163,
+              "max_ms": 1.1843331158161163,
+              "total_ms": 1.1843331158161163
+            },
+            {
+              "role": "main",
+              "phase": "mirror.load_workspace_mirror",
+              "count": 3,
+              "mean_ms": 0.668930821120739,
+              "p95_ms": 1.0231964755803347,
+              "max_ms": 1.0835840366780758,
+              "total_ms": 2.006792463362217
+            },
+            {
+              "role": "main",
+              "phase": "service.set_workspace_mirror",
+              "count": 1,
+              "mean_ms": 0.22479193285107613,
+              "p95_ms": 0.22479193285107613,
+              "max_ms": 0.22479193285107613,
+              "total_ms": 0.22479193285107613
+            },
+            {
+              "role": "main",
+              "phase": "service.run_command_chain",
+              "count": 1,
+              "mean_ms": 0.18912507221102715,
+              "p95_ms": 0.18912507221102715,
+              "max_ms": 0.18912507221102715,
+              "total_ms": 0.18912507221102715
+            },
+            {
+              "role": "main",
+              "phase": "service.exec_edit",
+              "count": 1,
+              "mean_ms": 0.10129204019904137,
+              "p95_ms": 0.10129204019904137,
+              "max_ms": 0.10129204019904137,
+              "total_ms": 0.10129204019904137
+            },
+            {
+              "role": "main",
+              "phase": "mirror.enqueue_checkpoint",
+              "count": 1,
+              "mean_ms": 0.01570768654346466,
+              "p95_ms": 0.01570768654346466,
+              "max_ms": 0.01570768654346466,
+              "total_ms": 0.01570768654346466
+            },
+            {
+              "role": "main",
+              "phase": "service.write_file",
+              "count": 1,
+              "mean_ms": 0.009874813258647919,
+              "p95_ms": 0.009874813258647919,
+              "max_ms": 0.009874813258647919,
+              "total_ms": 0.009874813258647919
+            },
+            {
+              "role": "main",
+              "phase": "redis.rpush",
+              "count": 1,
+              "mean_ms": 0.008291099220514297,
+              "p95_ms": 0.008291099220514297,
+              "max_ms": 0.008291099220514297,
+              "total_ms": 0.008291099220514297
+            },
+            {
+              "role": "main",
+              "phase": "service.prepare_log_artifacts",
+              "count": 1,
+              "mean_ms": 0.0069160014390945435,
+              "p95_ms": 0.0069160014390945435,
+              "max_ms": 0.0069160014390945435,
+              "total_ms": 0.0069160014390945435
+            },
+            {
+              "role": "main",
+              "phase": "service.ensure_async_log_worker",
+              "count": 1,
+              "mean_ms": 0.005916692316532135,
+              "p95_ms": 0.005916692316532135,
+              "max_ms": 0.005916692316532135,
+              "total_ms": 0.005916692316532135
+            },
+            {
+              "role": "main",
+              "phase": "redis.lock.acquire",
+              "count": 1,
+              "mean_ms": 0.003917142748832703,
+              "p95_ms": 0.003917142748832703,
+              "max_ms": 0.003917142748832703,
+              "total_ms": 0.003917142748832703
+            },
+            {
+              "role": "main",
+              "phase": "service.ensure_mem_cache_worker",
+              "count": 1,
+              "mean_ms": 0.0023329630494117737,
+              "p95_ms": 0.0023329630494117737,
+              "max_ms": 0.0023329630494117737,
+              "total_ms": 0.0023329630494117737
+            },
+            {
+              "role": "main",
+              "phase": "service.ensure_workspace_checkpoint_worker",
+              "count": 1,
+              "mean_ms": 0.0014593824744224548,
+              "p95_ms": 0.0014593824744224548,
+              "max_ms": 0.0014593824744224548,
+              "total_ms": 0.0014593824744224548
+            },
+            {
+              "role": "main",
+              "phase": "redis.sadd",
+              "count": 2,
+              "mean_ms": 0.0007916241884231567,
+              "p95_ms": 0.001091696321964264,
+              "max_ms": 0.001125037670135498,
+              "total_ms": 0.0015832483768463135
+            },
+            {
+              "role": "main",
+              "phase": "redis.get",
+              "count": 13,
+              "mean_ms": 0.0007467774244455191,
+              "p95_ms": 0.0014332123100757595,
+              "max_ms": 0.0015832483768463135,
+              "total_ms": 0.009708106517791748
+            },
+            {
+              "role": "main",
+              "phase": "redis.set",
+              "count": 4,
+              "mean_ms": 0.00037532299757003784,
+              "p95_ms": 0.0005650799721479416,
+              "max_ms": 0.000583939254283905,
+              "total_ms": 0.0015012919902801514
+            }
+          ],
+          "post_return_phases": [
+            {
+              "role": "checkpoint_worker",
+              "phase": "mirror.flush_workspace_mirror",
+              "count": 1,
+              "mean_ms": 569.6172500029206,
+              "p95_ms": 569.6172500029206,
+              "max_ms": 569.6172500029206,
+              "total_ms": 569.6172500029206
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "sqlalchemy.Session.scalars:sqlalchemy_repositories.py:get_node:154",
+              "count": 1,
+              "mean_ms": 376.78270787000656,
+              "p95_ms": 376.78270787000656,
+              "max_ms": 376.78270787000656,
+              "total_ms": 376.78270787000656
+            },
+            {
+              "role": "command_log_worker",
+              "phase": "repo.bulk_insert_command_logs",
+              "count": 1,
+              "mean_ms": 207.89162488654256,
+              "p95_ms": 207.89162488654256,
+              "max_ms": 207.89162488654256,
+              "total_ms": 207.89162488654256
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "sqlalchemy.Session.commit:workspace_mirror.py:flush_workspace_mirror:798",
+              "count": 1,
+              "mean_ms": 191.4565423503518,
+              "p95_ms": 191.4565423503518,
+              "max_ms": 191.4565423503518,
+              "total_ms": 191.4565423503518
+            },
+            {
+              "role": "command_log_worker",
+              "phase": "sqlalchemy.Session.execute:sqlalchemy_repositories.py:bulk_insert_command_logs:266",
+              "count": 1,
+              "mean_ms": 159.77270808070898,
+              "p95_ms": 159.77270808070898,
+              "max_ms": 159.77270808070898,
+              "total_ms": 159.77270808070898
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "sqlalchemy.Session.flush:workspace_mirror.py:flush_workspace_mirror:798",
+              "count": 1,
+              "mean_ms": 145.84083342924714,
+              "p95_ms": 145.84083342924714,
+              "max_ms": 145.84083342924714,
+              "total_ms": 145.84083342924714
+            },
+            {
+              "role": "command_log_worker",
+              "phase": "sqlalchemy.Session.commit:sqlalchemy_repositories.py:bulk_insert_command_logs:267",
+              "count": 1,
+              "mean_ms": 48.075207974761724,
+              "p95_ms": 48.075207974761724,
+              "max_ms": 48.075207974761724,
+              "total_ms": 48.075207974761724
+            },
+            {
+              "role": "main",
+              "phase": "mirror.load_workspace_mirror",
+              "count": 62,
+              "mean_ms": 0.7138775977035684,
+              "p95_ms": 1.266075018793343,
+              "max_ms": 12.841125018894672,
+              "total_ms": 44.26041105762124
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "mirror.load_workspace_mirror",
+              "count": 3,
+              "mean_ms": 0.3735277180870374,
+              "p95_ms": 0.43216231279075146,
+              "max_ms": 0.43674977496266365,
+              "total_ms": 1.1205831542611122
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "mirror.set_workspace_mirror",
+              "count": 1,
+              "mean_ms": 0.23891683667898178,
+              "p95_ms": 0.23891683667898178,
+              "max_ms": 0.23891683667898178,
+              "total_ms": 0.23891683667898178
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.rpush",
+              "count": 1,
+              "mean_ms": 0.014499761164188385,
+              "p95_ms": 0.014499761164188385,
+              "max_ms": 0.014499761164188385,
+              "total_ms": 0.014499761164188385
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.blpop",
+              "count": 1,
+              "mean_ms": 0.007791910320520401,
+              "p95_ms": 0.007791910320520401,
+              "max_ms": 0.007791910320520401,
+              "total_ms": 0.007791910320520401
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.lock.acquire",
+              "count": 1,
+              "mean_ms": 0.0024996697902679443,
+              "p95_ms": 0.0024996697902679443,
+              "max_ms": 0.0024996697902679443,
+              "total_ms": 0.0024996697902679443
+            },
+            {
+              "role": "main",
+              "phase": "redis.get",
+              "count": 248,
+              "mean_ms": 0.0010989418613814538,
+              "p95_ms": 0.0029437011107802382,
+              "max_ms": 0.015333760529756546,
+              "total_ms": 0.27253758162260056
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.delete",
+              "count": 3,
+              "mean_ms": 0.000888636956612269,
+              "p95_ms": 0.0017708167433738706,
+              "max_ms": 0.0019166618585586548,
+              "total_ms": 0.0026659108698368073
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.srem",
+              "count": 2,
+              "mean_ms": 0.0007918570190668106,
+              "p95_ms": 0.0010167015716433525,
+              "max_ms": 0.0010416842997074127,
+              "total_ms": 0.0015837140381336212
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.set",
+              "count": 3,
+              "mean_ms": 0.0007635292907555898,
+              "p95_ms": 0.0012619420886039732,
+              "max_ms": 0.0013327226042747498,
+              "total_ms": 0.0022905878722667694
+            },
+            {
+              "role": "checkpoint_worker",
+              "phase": "redis.get",
+              "count": 11,
+              "mean_ms": 0.0005266205831007524,
+              "p95_ms": 0.0009795185178518295,
+              "max_ms": 0.0010421499609947205,
+              "total_ms": 0.005792826414108276
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

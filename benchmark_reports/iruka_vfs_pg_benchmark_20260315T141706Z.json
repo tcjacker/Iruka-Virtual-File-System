@@ -1,0 +1,149 @@
+{
+  "report_version": 1,
+  "started_at": "2026-03-15T14:16:11.623928+00:00",
+  "ended_at": "2026-03-15T14:17:06.950977+00:00",
+  "duration_seconds": 55.327049,
+  "database": {
+    "host": "pgm-6we50rtg1rc9d3qtpo.pgsql.japan.rds.aliyuncs.com",
+    "database": "file_sys",
+    "driver": "postgresql+psycopg"
+  },
+  "parameters": {
+    "workspace_count": 8,
+    "commands_per_workspace": 24,
+    "latency_iterations": 20,
+    "warmup_iterations": 3,
+    "chapter_bytes": 65536,
+    "tenant_prefix": "bench",
+    "keep_data": false
+  },
+  "single_workspace_latency": [
+    {
+      "name": "ensure_warm",
+      "units": "ms",
+      "count": 20,
+      "min": 0.19299983978271484,
+      "max": 0.5984166637063026,
+      "mean": 0.3148500109091401,
+      "median": 0.2204999327659607,
+      "p95": 0.5666707176715136,
+      "p99": 0.5920674744993448,
+      "stdev": 0.15258511631684712
+    },
+    {
+      "name": "cat_chapter",
+      "units": "ms",
+      "count": 20,
+      "min": 146.88970800489187,
+      "max": 229.25537498667836,
+      "mean": 165.34606453496963,
+      "median": 163.35654142312706,
+      "p95": 174.80861879885202,
+      "p99": 218.36602374911303,
+      "stdev": 16.396952759114352
+    },
+    {
+      "name": "wc_chapter",
+      "units": "ms",
+      "count": 20,
+      "min": 147.44245912879705,
+      "max": 173.66362502798438,
+      "mean": 159.66953127644956,
+      "median": 161.3063954282552,
+      "p95": 168.8019998371601,
+      "p99": 172.69129998981953,
+      "stdev": 7.3359878537946965
+    },
+    {
+      "name": "search_workspace",
+      "units": "ms",
+      "count": 20,
+      "min": 158.24895771220326,
+      "max": 180.19700003787875,
+      "mean": 170.96233966294676,
+      "median": 172.9087089188397,
+      "p95": 179.94853521231562,
+      "p99": 180.14730707276613,
+      "stdev": 6.825985142298832
+    },
+    {
+      "name": "write_note_redirect",
+      "units": "ms",
+      "count": 20,
+      "min": 147.76287507265806,
+      "max": 218.45425013452768,
+      "mean": 173.08434788137674,
+      "median": 170.80454132519662,
+      "p95": 218.30965217668563,
+      "p99": 218.42533054295927,
+      "stdev": 17.48166993249742
+    },
+    {
+      "name": "edit_chapter",
+      "units": "ms",
+      "count": 20,
+      "min": 159.92562472820282,
+      "max": 967.2942920587957,
+      "mean": 337.7591668162495,
+      "median": 266.3043960928917,
+      "p95": 599.7333944542336,
+      "p99": 893.7821125378828,
+      "stdev": 188.17016171306247
+    },
+    {
+      "name": "flush",
+      "units": "ms",
+      "count": 20,
+      "min": 1.434708945453167,
+      "max": 84.32095823809505,
+      "mean": 6.025175051763654,
+      "median": 1.8663331866264343,
+      "p95": 7.332285307347831,
+      "p99": 68.92322365194548,
+      "stdev": 18.434376860605667,
+      "attempts": 20,
+      "failures": 0,
+      "success_rate": 1.0
+    }
+  ],
+  "concurrency": {
+    "workspace_count": 8,
+    "total_commands": 192,
+    "successful_commands": 192,
+    "wall_time_seconds": 6.518237125128508,
+    "throughput_qps": 29.455817012213206,
+    "command_log_rows": 305,
+    "flush_failures": 0,
+    "command_latency_ms": {
+      "name": "concurrent_commands",
+      "units": "ms",
+      "count": 192,
+      "min": 133.55495873838663,
+      "max": 698.516707867384,
+      "mean": 186.6314943836187,
+      "median": 157.3058539070189,
+      "p95": 368.90970875974733,
+      "p99": 590.3782235970724,
+      "stdev": 94.46369059296504
+    },
+    "flush_latency_ms": {
+      "name": "concurrent_flush",
+      "units": "ms",
+      "count": 8,
+      "min": 189.03845874592662,
+      "max": 603.9144997484982,
+      "mean": 378.25216178316623,
+      "median": 377.7716881595552,
+      "p95": 588.8237395323813,
+      "p99": 600.8963477052747,
+      "stdev": 144.49727150542904,
+      "attempts": 8,
+      "failures": 0,
+      "success_rate": 1.0
+    }
+  },
+  "cleanup": {
+    "performed": true,
+    "tenant_pattern": "bench_20260315T141611Z%"
+  }
+}

@@ -1,0 +1,149 @@
+{
+  "report_version": 1,
+  "started_at": "2026-03-15T14:34:29.764630+00:00",
+  "ended_at": "2026-03-15T14:35:33.087497+00:00",
+  "duration_seconds": 63.322867,
+  "database": {
+    "host": "pgm-6we50rtg1rc9d3qtpo.pgsql.japan.rds.aliyuncs.com",
+    "database": "file_sys",
+    "driver": "postgresql+psycopg"
+  },
+  "parameters": {
+    "workspace_count": 8,
+    "commands_per_workspace": 24,
+    "latency_iterations": 20,
+    "warmup_iterations": 3,
+    "chapter_bytes": 65536,
+    "tenant_prefix": "bench",
+    "keep_data": false
+  },
+  "single_workspace_latency": [
+    {
+      "name": "ensure_warm",
+      "units": "ms",
+      "count": 20,
+      "min": 0.19337469711899757,
+      "max": 0.4937923513352871,
+      "mean": 0.26551045011729,
+      "median": 0.2537702675908804,
+      "p95": 0.3276204923167826,
+      "p99": 0.46055797953158595,
+      "stdev": 0.0671086138474557
+    },
+    {
+      "name": "cat_chapter",
+      "units": "ms",
+      "count": 20,
+      "min": 140.64908307045698,
+      "max": 384.73741710186005,
+      "mean": 173.49587080534548,
+      "median": 153.09306257404387,
+      "p95": 356.4419836038724,
+      "p99": 379.07833040226245,
+      "stdev": 67.79216463776037
+    },
+    {
+      "name": "wc_chapter",
+      "units": "ms",
+      "count": 20,
+      "min": 139.9107091128826,
+      "max": 355.59908393770456,
+      "mean": 164.31551668792963,
+      "median": 154.576312052086,
+      "p95": 196.00114137865614,
+      "p99": 323.67949542589463,
+      "stdev": 46.06912233410589
+    },
+    {
+      "name": "search_workspace",
+      "units": "ms",
+      "count": 20,
+      "min": 149.67862516641617,
+      "max": 359.6402080729604,
+      "mean": 171.16119384299964,
+      "median": 162.4565627425909,
+      "p95": 202.58581289090228,
+      "p99": 328.2293290365485,
+      "stdev": 45.59653937641298
+    },
+    {
+      "name": "write_note_redirect",
+      "units": "ms",
+      "count": 20,
+      "min": 142.98849971964955,
+      "max": 632.5043328106403,
+      "mean": 265.1222456712276,
+      "median": 164.45847880095243,
+      "p95": 467.99833525437873,
+      "p99": 599.6031332993878,
+      "stdev": 139.58852396461717
+    },
+    {
+      "name": "edit_chapter",
+      "units": "ms",
+      "count": 20,
+      "min": 149.96262500062585,
+      "max": 1194.3717082031071,
+      "mean": 516.562149929814,
+      "median": 480.3565419279039,
+      "p95": 1155.816433695145,
+      "p99": 1186.6606533015147,
+      "stdev": 373.2889827574743
+    },
+    {
+      "name": "flush",
+      "units": "ms",
+      "count": 20,
+      "min": 1.328333280980587,
+      "max": 963.2235420867801,
+      "mean": 49.831604259088635,
+      "median": 1.6170840244740248,
+      "p95": 52.20635612495312,
+      "p99": 781.0201048944133,
+      "stdev": 214.99116751652713,
+      "attempts": 20,
+      "failures": 0,
+      "success_rate": 1.0
+    }
+  ],
+  "concurrency": {
+    "workspace_count": 8,
+    "total_commands": 192,
+    "successful_commands": 192,
+    "wall_time_seconds": 6.831366375088692,
+    "throughput_qps": 28.105651118369018,
+    "command_log_rows": 305,
+    "flush_failures": 0,
+    "command_latency_ms": {
+      "name": "concurrent_commands",
+      "units": "ms",
+      "count": 192,
+      "min": 135.64641727134585,
+      "max": 591.2416251376271,
+      "mean": 174.79692597892912,
+      "median": 149.66800063848495,
+      "p95": 367.45408365968603,
+      "p99": 546.4104861812667,
+      "stdev": 87.08221416585779
+    },
+    "flush_latency_ms": {
+      "name": "concurrent_flush",
+      "units": "ms",
+      "count": 8,
+      "min": 307.46037513017654,
+      "max": 435.13112468644977,
+      "mean": 381.56306801829487,
+      "median": 400.3425419796258,
+      "p95": 426.40537701081485,
+      "p99": 433.3859751513228,
+      "stdev": 46.176113026516994,
+      "attempts": 8,
+      "failures": 0,
+      "success_rate": 1.0
+    }
+  },
+  "cleanup": {
+    "performed": true,
+    "tenant_pattern": "bench_20260315T143429Z%"
+  }
+}

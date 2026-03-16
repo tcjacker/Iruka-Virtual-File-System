@@ -32,6 +32,7 @@ from iruka_vfs.constants import (
     VFS_CHAPTERS_ROOT,
     VFS_COMMAND_LOG_MAX_STDERR_CHARS,
     VFS_COMMAND_LOG_MAX_STDOUT_CHARS,
+    VFS_COMMAND_LOG_MAX_ARTIFACT_CHARS,
     VFS_CONTEXT_ROOT,
     VFS_NOTES_ROOT,
     VFS_ROOT,
@@ -68,6 +69,8 @@ from iruka_vfs.workspace_mirror import ensure_workspace_checkpoint_worker as _en
 from iruka_vfs.workspace_mirror import flush_workspace_mirror as _flush_workspace_mirror_api
 from iruka_vfs.workspace_mirror import get_workspace_mirror as _get_workspace_mirror
 from iruka_vfs.workspace_mirror import get_workspace_mirror as _get_workspace_mirror_api
+from iruka_vfs.workspace_mirror import load_workspace_mirror_by_base_key as _load_workspace_mirror_by_base_key
+from iruka_vfs.workspace_mirror import mirror_has_dirty_state as _mirror_has_dirty_state
 from iruka_vfs.workspace_mirror import mirror_node_path_locked as _mirror_node_path_locked
 from iruka_vfs.workspace_mirror import rebuild_workspace_mirror_indexes_locked as _rebuild_workspace_mirror_indexes_locked
 from iruka_vfs.workspace_mirror import set_workspace_mirror as _set_workspace_mirror_api
@@ -75,6 +78,7 @@ from iruka_vfs.workspace_mirror import set_active_workspace_mirror as _set_activ
 from iruka_vfs.workspace_mirror import set_active_workspace_scope as _set_active_workspace_scope
 from iruka_vfs.workspace_mirror import set_active_workspace_tenant as _set_active_workspace_tenant
 from iruka_vfs.workspace_mirror import workspace_enqueued_key as _workspace_enqueued_key
+from iruka_vfs.workspace_mirror import workspace_due_key as _workspace_due_key
 from iruka_vfs.workspace_mirror import workspace_lock as _workspace_lock_api
 from iruka_vfs.workspace_mirror import workspace_mirror_key as _workspace_mirror_key
 from iruka_vfs.workspace_mirror import workspace_scope_for_db as _workspace_scope_for_db
@@ -103,6 +107,91 @@ _ephemeral_patch_lock = threading.Lock()
 _ephemeral_patch_id = 2_000_000_000
 _redis_client_lock = threading.Lock()
 _redis_client: redis.Redis | None = None
+
+
+def _summarize_artifacts_for_log(value: Any, *, depth: int = 0) -> Any:
+    if depth >= 3:
+        return {"truncated": True, "reason": "max_depth"}
+    if isinstance(value, dict):
+        summary: dict[str, Any] = {}
+        for key in (
+            "path",
+            "op",
+            "version",
+            "replacements",
+            "patch_id",
+            "match_count",
+            "count",
+            "source",
+            "pattern",
+            "cwd",
+            "created",
+            "existing",
+            "files",
+            "conflicts",
+            "results",
+            "pipeline",
+            "redirect",
+            "logging",
+        ):
+            if key not in value:
+                continue
+            item = value[key]
+            if key in {"created", "existing", "files"} and isinstance(item, list):
+                summary[key] = {"count": len(item)}
+            elif key == "results" and isinstance(item, list):
+                summary[key] = [
+                    {
+                        "cmd": entry.get("cmd"),
+                        "exit_code": entry.get("exit_code"),
+                    }
+                    for entry in item[:8]
+                    if isinstance(entry, dict)
+                ]
+                if len(item) > 8:
+                    summary["results_truncated"] = len(item) - 8
+            elif key == "pipeline" and isinstance(item, list):
+                summary[key] = [
+                    {
+                        "argv0": (entry.get("argv") or [""])[0] if isinstance(entry, dict) else "",
+                        "exit_code": entry.get("exit_code") if isinstance(entry, dict) else None,
+                    }
+                    for entry in item[:8]
+                ]
+                if len(item) > 8:
+                    summary["pipeline_truncated"] = len(item) - 8
+            elif key == "redirect" and isinstance(item, dict):
+                summary[key] = {k: item.get(k) for k in ("path", "op", "version") if k in item}
+            elif key == "logging" and isinstance(item, dict):
+                summary[key] = item
+            elif key == "conflicts" and isinstance(item, list):
+                summary[key] = {"count": len(item)}
+            else:
+                summary[key] = _summarize_artifacts_for_log(item, depth=depth + 1)
+        return summary
+    if isinstance(value, list):
+        return {"count": len(value)}
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(type(value).__name__)
+
+
+def _prepare_artifacts_for_log(artifacts: dict[str, Any]) -> dict[str, Any]:
+    summarized = _summarize_artifacts_for_log(artifacts)
+    encoded = json.dumps(summarized, ensure_ascii=False)
+    if len(encoded) <= VFS_COMMAND_LOG_MAX_ARTIFACT_CHARS:
+        return summarized
+    return {
+        "truncated": True,
+        "original_chars": len(encoded),
+        "max_chars": VFS_COMMAND_LOG_MAX_ARTIFACT_CHARS,
+        "summary": {
+            "results": summarized.get("results"),
+            "pipeline": summarized.get("pipeline"),
+            "redirect": summarized.get("redirect"),
+            "logging": summarized.get("logging"),
+        },
+    }
 
 
 def _truncate_for_log(text_value: str, limit: int) -> tuple[str, dict[str, Any]]:
@@ -273,8 +362,8 @@ def ensure_virtual_workspace(
         metadata = dict(workspace.metadata_json or {})
         metadata["tenant_id"] = tenant_key
         metadata["virtual_chapter_file"] = chapter_path or str(seed.metadata.get("virtual_chapter_file") or "")
-        metadata["virtual_writable_roots"] = [VFS_CHAPTERS_ROOT, VFS_NOTES_ROOT]
-        metadata["virtual_readonly_roots"] = [VFS_CONTEXT_ROOT, VFS_SKILLS_ROOT]
+        metadata["virtual_writable_roots"] = [VFS_ROOT]
+        metadata["virtual_readonly_roots"] = []
         metadata["virtual_notes_dir"] = VFS_NOTES_ROOT
         metadata["virtual_context_files"] = sorted(seed.context_files.keys())
         metadata["virtual_skill_files"] = sorted(seed.skill_files.keys())
@@ -341,10 +430,10 @@ def flush_workspace(workspace_id: int, tenant_id: str | None = None) -> bool:
     ok = _flush_workspace_mirror_api(None, base_key=base_key)
     client = _get_redis_client()
     client.srem(_workspace_enqueued_key(), base_key)
-    current_raw = client.get(_workspace_mirror_key(base_key))
-    if current_raw:
-        current = _deserialize_workspace_mirror(current_raw)
-        if current.dirty_node_ids or current.dirty_session or current.dirty_workspace_metadata:
+    client.delete(_workspace_due_key(base_key))
+    current = _load_workspace_mirror_by_base_key(client, base_key)
+    if current:
+        if _mirror_has_dirty_state(current):
             _enqueue_workspace_checkpoint(base_key)
     return ok
 
@@ -401,8 +490,10 @@ def run_virtual_bash(
                 mirror.cwd_node_id = next_cwd_node_id
                 mirror.dirty_session = True
                 mirror.revision += 1
-            if int(mirror.revision) != original_revision or mirror.dirty_node_ids or mirror.dirty_session or mirror.dirty_workspace_metadata:
+            if int(mirror.revision) != original_revision or _mirror_has_dirty_state(mirror):
                 _set_workspace_mirror_api(mirror)
+            cwd_node = mirror.nodes.get(int(mirror.cwd_node_id)) or _must_get_node(db, int(mirror.cwd_node_id))
+            cwd_path = _node_path(db, cwd_node)
             ended_at = datetime.utcnow()
         finally:
             _set_active_workspace_mirror(None)
@@ -414,7 +505,7 @@ def run_virtual_bash(
                 pass
         log_stdout, stdout_meta = _truncate_for_log(result.stdout, VFS_COMMAND_LOG_MAX_STDOUT_CHARS)
         log_stderr, stderr_meta = _truncate_for_log(result.stderr, VFS_COMMAND_LOG_MAX_STDERR_CHARS)
-        log_artifacts = dict(result.artifacts or {})
+        log_artifacts = _prepare_artifacts_for_log(dict(result.artifacts or {}))
         log_artifacts["logging"] = {
             "stdout": stdout_meta,
             "stderr": stderr_meta,
@@ -441,7 +532,6 @@ def run_virtual_bash(
         db.rollback()
         raise
 
-    cwd_node = mirror.nodes.get(int(mirror.cwd_node_id)) or _must_get_node(db, int(mirror.cwd_node_id))
     return {
         "session_id": int(mirror.session_id),
         "command_id": command_id,
@@ -449,7 +539,7 @@ def run_virtual_bash(
         "stderr": result.stderr,
         "exit_code": result.exit_code,
         "artifacts": result.artifacts,
-        "cwd": _node_path(db, cwd_node),
+        "cwd": cwd_path,
     }
 
 
@@ -473,26 +563,21 @@ def _resolve_target_path_for_write(
     return f"{parent_path.rstrip('/')}/{leaf}"
 
 
-def _allow_write_path(db: Session, session: VirtualShellSession, path: str) -> tuple[bool, str]:
-    mirror = _get_workspace_mirror(session.workspace_id, tenant_key=getattr(session, "tenant_id", None))
-    if mirror:
-        with mirror.lock:
-            metadata = dict(mirror.workspace_metadata)
-    else:
-        tenant_key = _effective_tenant_key(getattr(session, "tenant_id", None))
-        workspace = _repositories.workspace.get_workspace(db, session.workspace_id, tenant_key)
-        metadata = dict(workspace.metadata_json or {}) if workspace else {}
-    chapter_file = str(metadata.get("virtual_chapter_file") or "")
+def _normalize_virtual_path(db: Session, session: VirtualShellSession, raw_path: str) -> str | None:
+    if not raw_path:
+        return None
+    if raw_path.startswith("/"):
+        return raw_path.rstrip("/") or "/"
+    cwd = _must_get_node(db, session.cwd_node_id)
+    cwd_path = _node_path(db, cwd)
+    joined = f"{cwd_path.rstrip('/')}/{raw_path}" if cwd_path != "/" else f"/{raw_path}"
+    return joined.rstrip("/") or "/"
 
-    if _path_is_under(path, VFS_NOTES_ROOT):
+
+def _allow_write_path(db: Session, session: VirtualShellSession, path: str) -> tuple[bool, str]:
+    if _path_is_under(path, VFS_ROOT):
         return True, ""
-    if path == chapter_file:
-        return True, ""
-    if _path_is_under(path, VFS_CHAPTERS_ROOT):
-        if chapter_file:
-            return False, f"write denied: only current chapter file is writable ({chapter_file})"
-        return False, "write denied: chapter scope metadata is missing"
-    return False, f"write denied: path is read-only ({path})"
+    return False, f"write denied: path is outside workspace ({path})"
 
 
 def _search_text_lines(text: str, pattern: str) -> list[str]:
@@ -527,7 +612,7 @@ def _exec_touch(db: Session, session: VirtualShellSession, args: list[str]) -> V
                 with mirror.lock:
                     mirror_node = mirror.nodes.get(int(node.id), node)
                     mirror_node.updated_at = datetime.utcnow()
-                    mirror.dirty_node_ids.add(int(mirror_node.id))
+                    mirror.dirty_content_node_ids.add(int(mirror_node.id))
                     mirror.revision += 1
             else:
                 node.updated_at = datetime.utcnow()
@@ -551,6 +636,68 @@ def _exec_touch(db: Session, session: VirtualShellSession, args: list[str]) -> V
         "",
         0,
         {"created": created, "existing": existing},
+    )
+
+
+def _exec_mkdir(db: Session, session: VirtualShellSession, args: list[str]) -> VirtualCommandResult:
+    if not args:
+        return VirtualCommandResult("", "mkdir: missing operand", 1, {})
+
+    parents = False
+    targets: list[str] = []
+    for arg in args:
+        if arg == "-p":
+            parents = True
+            continue
+        if arg.startswith("-"):
+            return VirtualCommandResult("", f"mkdir: unsupported option: {arg}", 1, {})
+        targets.append(arg)
+    if not targets:
+        return VirtualCommandResult("", "mkdir: missing operand", 1, {})
+
+    created: list[str] = []
+    existing: list[str] = []
+    for raw_path in targets:
+        resolved_target = _normalize_virtual_path(db, session, raw_path) if parents else _resolve_target_path_for_write(db, session, raw_path)
+        if not resolved_target:
+            return VirtualCommandResult("", f"mkdir: cannot create directory '{raw_path}': invalid path", 1, {})
+        allowed, deny_reason = _allow_write_path(db, session, resolved_target)
+        if not allowed:
+            reason = deny_reason or f"path is read-only ({resolved_target})"
+            return VirtualCommandResult("", f"mkdir: {reason}", 1, {"path": resolved_target})
+
+        node = _resolve_path(db, session.workspace_id, session.cwd_node_id, raw_path)
+        if node:
+            if node.node_type != "dir":
+                return VirtualCommandResult("", f"mkdir: cannot create directory '{raw_path}': File exists", 1, {})
+            if parents:
+                existing.append(_node_path(db, node))
+                continue
+            return VirtualCommandResult("", f"mkdir: cannot create directory '{raw_path}': File exists", 1, {})
+
+        if parents:
+            try:
+                created_path = _mkdir_parents(db, session, raw_path)
+            except ValueError as exc:
+                return VirtualCommandResult("", str(exc), 1, {"path": resolved_target})
+        else:
+            parent, name = _resolve_parent_for_create(db, session.workspace_id, session.cwd_node_id, raw_path)
+            if not parent or not name:
+                return VirtualCommandResult("", f"mkdir: cannot create directory '{raw_path}': No such file or directory", 1, {})
+            dir_node = _get_or_create_child_dir(db, session.workspace_id, int(parent.id), name)
+            created_path = _node_path(db, dir_node)
+        created.append(created_path)
+
+    summary = []
+    if created:
+        summary.append(f"created={len(created)}")
+    if existing:
+        summary.append(f"existing={len(existing)}")
+    return VirtualCommandResult(
+        "mkdir " + ", ".join(summary or ["ok"]),
+        "",
+        0,
+        {"created": created, "existing": existing, "parents": parents},
     )
 
 
@@ -919,6 +1066,38 @@ def _get_or_create_root(db: Session, workspace_id: int) -> VirtualFileNode:
 
 def _get_or_create_child_dir(db: Session, workspace_id: int, parent_id: int, name: str) -> VirtualFileNode:
     tenant_key = _effective_tenant_key()
+    mirror = _get_workspace_mirror(workspace_id, tenant_key=tenant_key)
+    if mirror:
+        with mirror.lock:
+            parent = mirror.nodes.get(parent_id)
+            if not parent or parent.node_type != "dir":
+                raise ValueError(f"invalid virtual parent: {parent_id}")
+            parent_path = _mirror_node_path_locked(mirror, parent)
+            target_path = f"{parent_path.rstrip('/')}/{name}" if parent_path != "/" else f"/{name}"
+            existing_id = mirror.path_to_id.get(target_path)
+            if existing_id is not None:
+                return mirror.nodes[existing_id]
+            node = VirtualFileNode(
+                id=mirror.next_temp_id,
+                tenant_id=tenant_key,
+                workspace_id=workspace_id,
+                parent_id=parent_id,
+                name=name,
+                node_type="dir",
+                content_text="",
+                version_no=1,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            mirror.next_temp_id -= 1
+            mirror.nodes[int(node.id)] = node
+            mirror.children_by_parent.setdefault(parent_id, []).append(int(node.id))
+            _ensure_children_sorted_locked(mirror, parent_id)
+            mirror.path_to_id[target_path] = int(node.id)
+            mirror.dirty_structure_node_ids.add(int(node.id))
+            mirror.revision += 1
+            _cache_metric_inc("write_ops")
+            return node
     node = _repositories.node.get_child(
         db,
         tenant_key=tenant_key,
@@ -939,6 +1118,32 @@ def _get_or_create_child_dir(db: Session, workspace_id: int, parent_id: int, nam
         content_text="",
         version_no=1,
     )
+
+
+def _mkdir_parents(db: Session, session: VirtualShellSession, raw_path: str) -> str:
+    if raw_path.startswith("/"):
+        current = _get_or_create_root(db, session.workspace_id)
+        parts = [item for item in raw_path.split("/") if item]
+    else:
+        current = _must_get_node(db, session.cwd_node_id)
+        parts = [item for item in raw_path.split("/") if item]
+    if not parts:
+        raise ValueError("mkdir: invalid path")
+    for part in parts:
+        if part in {".", ""}:
+            continue
+        if part == "..":
+            if current.parent_id is not None:
+                current = _must_get_node(db, int(current.parent_id))
+            continue
+        child = _resolve_path(db, session.workspace_id, int(current.id), part)
+        if child:
+            if child.node_type != "dir":
+                raise ValueError(f"mkdir: cannot create directory '{raw_path}': File exists")
+            current = child
+            continue
+        current = _get_or_create_child_dir(db, session.workspace_id, int(current.id), part)
+    return _node_path(db, current)
 
 
 def _get_or_create_child_file(db: Session, workspace_id: int, parent_id: int, name: str, content: str) -> VirtualFileNode:
@@ -971,7 +1176,7 @@ def _get_or_create_child_file(db: Session, workspace_id: int, parent_id: int, na
             mirror.children_by_parent.setdefault(parent_id, []).append(int(node.id))
             _ensure_children_sorted_locked(mirror, parent_id)
             mirror.path_to_id[target_path] = int(node.id)
-            mirror.dirty_node_ids.add(int(node.id))
+            mirror.dirty_structure_node_ids.add(int(node.id))
             mirror.revision += 1
             _cache_metric_inc("write_ops")
             return node
@@ -1011,7 +1216,7 @@ def _write_file(db: Session, node: VirtualFileNode, content: str, *, op: str) ->
             mirror_node.content_text = content
             mirror_node.version_no = next_version
             mirror_node.updated_at = datetime.utcnow()
-            mirror.dirty_node_ids.add(int(mirror_node.id))
+            mirror.dirty_content_node_ids.add(int(mirror_node.id))
             mirror.revision += 1
             _cache_metric_inc("write_ops")
             return next_version

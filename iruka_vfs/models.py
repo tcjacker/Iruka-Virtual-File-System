@@ -45,7 +45,8 @@ class WorkspaceMirror:
     workspace_metadata: dict[str, Any]
     revision: int = 1
     checkpoint_revision: int = 0
-    dirty_node_ids: set[int] = field(default_factory=set)
+    dirty_content_node_ids: set[int] = field(default_factory=set)
+    dirty_structure_node_ids: set[int] = field(default_factory=set)
     dirty_session: bool = False
     dirty_workspace_metadata: bool = False
     next_temp_id: int = -1

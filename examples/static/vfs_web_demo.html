@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>iruka_vfs Web Demo</title>
+    <style>
+      :root {
+        --bg: #f4efe6;
+        --paper: #fffaf2;
+        --ink: #1a1815;
+        --muted: #6e6558;
+        --line: #d8c7a8;
+        --accent: #b44f2e;
+        --accent-2: #235d73;
+        --ok: #24734b;
+        --bad: #9d2f2f;
+        --shadow: 0 14px 40px rgba(47, 34, 18, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Avenir Next", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(180, 79, 46, 0.16), transparent 28%),
+          radial-gradient(circle at top right, rgba(35, 93, 115, 0.14), transparent 24%),
+          linear-gradient(180deg, #f7f2ea 0%, var(--bg) 100%);
+      }
+
+      .shell {
+        max-width: 1440px;
+        margin: 0 auto;
+        padding: 28px 20px 40px;
+      }
+
+      .hero {
+        display: grid;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+
+      .eyebrow {
+        color: var(--accent);
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(32px, 4vw, 56px);
+        line-height: 0.96;
+        font-weight: 800;
+        max-width: 11ch;
+      }
+
+      .subtitle {
+        margin: 0;
+        max-width: 70ch;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .workspace-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        background: rgba(255, 250, 242, 0.78);
+        backdrop-filter: blur(8px);
+        border-radius: 18px;
+        box-shadow: var(--shadow);
+        margin-bottom: 18px;
+      }
+
+      .workspace-pill {
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(35, 93, 115, 0.08);
+        color: var(--accent-2);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(380px, 1.15fr) minmax(320px, 0.85fr);
+        gap: 18px;
+      }
+
+      .stack {
+        display: grid;
+        gap: 18px;
+      }
+
+      .panel {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 16px 18px 0;
+      }
+
+      .panel-title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .panel-body {
+        padding: 16px 18px 18px;
+      }
+
+      .command-box {
+        display: grid;
+        gap: 10px;
+      }
+
+      textarea,
+      pre,
+      code,
+      .mono {
+        font-family: "SFMono-Regular", "IBM Plex Mono", "Menlo", monospace;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 110px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 14px;
+        background: #fffefb;
+        color: var(--ink);
+        resize: vertical;
+        font-size: 14px;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      button {
+        border: 0;
+        border-radius: 14px;
+        padding: 11px 16px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+        transition: transform 120ms ease, opacity 120ms ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+      }
+
+      button.primary {
+        background: var(--accent);
+        color: white;
+      }
+
+      button.secondary {
+        background: var(--accent-2);
+        color: white;
+      }
+
+      button.ghost {
+        background: #efe2cd;
+        color: var(--ink);
+      }
+
+      .samples {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .sample {
+        border: 1px solid var(--line);
+        background: #fffdf8;
+        color: var(--ink);
+        font-size: 12px;
+        padding: 8px 10px;
+        border-radius: 999px;
+      }
+
+      .result-card {
+        border: 1px solid var(--line);
+        background: #fffdf8;
+        border-radius: 18px;
+        padding: 14px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .result-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        font-size: 12px;
+      }
+
+      .tag {
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: #efe6d8;
+      }
+
+      .tag.ok {
+        background: rgba(36, 115, 75, 0.14);
+        color: var(--ok);
+      }
+
+      .tag.bad {
+        background: rgba(157, 47, 47, 0.14);
+        color: var(--bad);
+      }
+
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        border-radius: 16px;
+        padding: 14px;
+        background: #1d1a17;
+        color: #f8efe2;
+        min-height: 64px;
+        font-size: 13px;
+      }
+
+      .kv {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      }
+
+      .metric {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 12px;
+        background: #fffdf8;
+      }
+
+      .metric-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--muted);
+      }
+
+      .metric-value {
+        margin-top: 8px;
+        font-size: 26px;
+        font-weight: 800;
+      }
+
+      .tree,
+      .host,
+      .history {
+        min-height: 220px;
+      }
+
+      .history-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .history-item {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 10px 12px;
+        background: #fffdf8;
+      }
+
+      .history-item .meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 11px;
+        margin-bottom: 8px;
+      }
+
+      .status {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      @media (max-width: 1080px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="hero">
+        <div class="eyebrow">Interactive Verification</div>
+        <h1>iruka_vfs command console</h1>
+        <p class="subtitle">
+          Run bash-style commands against a live demo workspace, inspect the virtual tree, verify host file sync,
+          and watch cache/checkpoint metrics move in real time.
+        </p>
+      </section>
+
+      <div class="workspace-bar">
+        <span class="workspace-pill" id="workspace-id">workspace: -</span>
+        <span class="workspace-pill" id="runtime-key">runtime: -</span>
+        <span class="workspace-pill" id="chapter-file">chapter: -</span>
+        <span class="status" id="status-text">Loading state…</span>
+      </div>
+
+      <section class="grid">
+        <div class="stack">
+          <article class="panel">
+            <div class="panel-head">
+              <h2 class="panel-title">Command Deck</h2>
+            </div>
+            <div class="panel-body command-box">
+              <textarea id="command-input">cat /workspace/chapters/chapter_1.md</textarea>
+              <div class="actions">
+                <button class="primary" id="run-button">Run Command</button>
+                <button class="secondary" id="flush-button">Flush Workspace</button>
+                <button class="ghost" id="reset-button">Reset Demo</button>
+              </div>
+              <div class="samples" id="sample-list"></div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h2 class="panel-title">Last Result</h2>
+            </div>
+            <div class="panel-body">
+              <div class="result-card">
+                <div class="result-meta">
+                  <span class="tag" id="result-command">command: -</span>
+                  <span class="tag" id="result-cwd">cwd: -</span>
+                  <span class="tag" id="result-latency">latency: -</span>
+                  <span class="tag" id="result-exit">exit: -</span>
+                </div>
+                <div>
+                  <div class="metric-label">stdout</div>
+                  <pre id="stdout-box"></pre>
+                </div>
+                <div>
+                  <div class="metric-label">stderr</div>
+                  <pre id="stderr-box"></pre>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h2 class="panel-title">Virtual Tree</h2>
+            </div>
+            <div class="panel-body tree">
+              <pre id="tree-box"></pre>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h2 class="panel-title">Host Chapter Text</h2>
+            </div>
+            <div class="panel-body host">
+              <pre id="host-box"></pre>
+            </div>
+          </article>
+        </div>
+
+        <div class="stack">
+          <article class="panel">
+            <div class="panel-head">
+              <h2 class="panel-title">Runtime Metrics</h2>
+            </div>
+            <div class="panel-body kv" id="metrics-grid"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h2 class="panel-title">Recent Commands</h2>
+            </div>
+            <div class="panel-body history">
+              <div class="history-list" id="history-list"></div>
+            </div>
+          </article>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const samples = [
+        "cat /workspace/chapters/chapter_1.md",
+        "edit /workspace/chapters/chapter_1.md --find MARKER_000 --replace VERIFIED_000",
+        "echo local-note > /workspace/notes/check.txt",
+        "rg VERIFIED /workspace",
+        "wc /workspace/chapters/chapter_1.md",
+        "cat /workspace/notes/check.txt"
+      ];
+
+      const els = {
+        status: document.getElementById("status-text"),
+        workspaceId: document.getElementById("workspace-id"),
+        runtimeKey: document.getElementById("runtime-key"),
+        chapterFile: document.getElementById("chapter-file"),
+        input: document.getElementById("command-input"),
+        run: document.getElementById("run-button"),
+        flush: document.getElementById("flush-button"),
+        reset: document.getElementById("reset-button"),
+        sampleList: document.getElementById("sample-list"),
+        resultCommand: document.getElementById("result-command"),
+        resultCwd: document.getElementById("result-cwd"),
+        resultLatency: document.getElementById("result-latency"),
+        resultExit: document.getElementById("result-exit"),
+        stdout: document.getElementById("stdout-box"),
+        stderr: document.getElementById("stderr-box"),
+        tree: document.getElementById("tree-box"),
+        host: document.getElementById("host-box"),
+        metrics: document.getElementById("metrics-grid"),
+        history: document.getElementById("history-list")
+      };
+
+      let busy = false;
+
+      function setBusy(nextBusy, message) {
+        busy = nextBusy;
+        els.run.disabled = nextBusy;
+        els.flush.disabled = nextBusy;
+        els.reset.disabled = nextBusy;
+        els.status.textContent = message;
+      }
+
+      function pretty(value) {
+        if (typeof value === "number") {
+          return Number.isInteger(value) ? String(value) : value.toFixed(2);
+        }
+        return String(value);
+      }
+
+      function renderMetrics(cacheMetrics, checkpointMetrics) {
+        const rows = {
+          ...cacheMetrics,
+          ...checkpointMetrics
+        };
+        els.metrics.innerHTML = "";
+        Object.entries(rows).forEach(([key, value]) => {
+          const card = document.createElement("div");
+          card.className = "metric";
+          card.innerHTML = `
+            <div class="metric-label">${key.replaceAll("_", " ")}</div>
+            <div class="metric-value mono">${pretty(value)}</div>
+          `;
+          els.metrics.appendChild(card);
+        });
+      }
+
+      function renderHistory(items) {
+        els.history.innerHTML = "";
+        items.forEach((item) => {
+          const node = document.createElement("div");
+          node.className = "history-item";
+          node.innerHTML = `
+            <div class="meta">
+              <span>#${item.id}</span>
+              <span>exit ${item.exit_code}</span>
+            </div>
+            <div class="mono">${item.raw_cmd}</div>
+          `;
+          els.history.appendChild(node);
+        });
+      }
+
+      function renderState(payload) {
+        els.workspaceId.textContent = `workspace: ${payload.workspace_id}`;
+        els.runtimeKey.textContent = `runtime: ${payload.runtime_key}`;
+        els.chapterFile.textContent = `chapter: ${payload.chapter_file || "-"}`;
+        els.tree.textContent = payload.tree || "(empty)";
+        els.host.textContent = payload.host_text || "";
+        renderMetrics(payload.cache_metrics || {}, payload.checkpoint_metrics || {});
+        renderHistory(payload.recent_commands || []);
+      }
+
+      function renderResult(result) {
+        if (!result) {
+          els.resultCommand.textContent = "command: -";
+          els.resultCwd.textContent = "cwd: -";
+          els.resultLatency.textContent = "latency: -";
+          els.resultExit.textContent = "exit: -";
+          els.resultExit.className = "tag";
+          els.stdout.textContent = "";
+          els.stderr.textContent = "";
+          return;
+        }
+        els.resultCommand.textContent = `command: ${result.command}`;
+        els.resultCwd.textContent = `cwd: ${result.cwd}`;
+        els.resultLatency.textContent = `latency: ${result.elapsed_ms.toFixed(2)} ms`;
+        els.resultExit.textContent = `exit: ${result.exit_code}`;
+        els.resultExit.className = `tag ${result.exit_code === 0 ? "ok" : "bad"}`;
+        els.stdout.textContent = result.stdout || "(empty)";
+        els.stderr.textContent = result.stderr || "(empty)";
+      }
+
+      async function callApi(path, body) {
+        const response = await fetch(path, {
+          method: body ? "POST" : "GET",
+          headers: body ? { "Content-Type": "application/json" } : {},
+          body: body ? JSON.stringify(body) : undefined
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.message || payload.error || "request failed");
+        }
+        return payload;
+      }
+
+      async function refreshState() {
+        setBusy(true, "Refreshing workspace state…");
+        try {
+          const payload = await callApi("/api/state");
+          renderState(payload);
+          renderResult(null);
+          setBusy(false, "Workspace ready.");
+        } catch (error) {
+          setBusy(false, error.message);
+        }
+      }
+
+      async function runCommand() {
+        setBusy(true, "Running command…");
+        try {
+          const payload = await callApi("/api/command", { command: els.input.value });
+          renderState(payload);
+          renderResult(payload.result || null);
+          setBusy(false, "Command complete.");
+        } catch (error) {
+          setBusy(false, error.message);
+        }
+      }
+
+      async function flushWorkspace() {
+        setBusy(true, "Flushing workspace…");
+        try {
+          const payload = await callApi("/api/flush", {});
+          renderState(payload);
+          renderResult({
+            command: "workspace.flush()",
+            cwd: "-",
+            elapsed_ms: payload.flush.elapsed_ms,
+            exit_code: payload.flush.ok ? 0 : 1,
+            stdout: payload.flush.ok ? "flush ok" : "",
+            stderr: payload.flush.ok ? "" : "flush failed"
+          });
+          setBusy(false, "Flush complete.");
+        } catch (error) {
+          setBusy(false, error.message);
+        }
+      }
+
+      async function resetWorkspace() {
+        setBusy(true, "Resetting demo workspace…");
+        try {
+          const payload = await callApi("/api/reset", {});
+          renderState(payload);
+          renderResult(null);
+          els.input.value = samples[0];
+          setBusy(false, "Demo workspace reset.");
+        } catch (error) {
+          setBusy(false, error.message);
+        }
+      }
+
+      samples.forEach((sample) => {
+        const button = document.createElement("button");
+        button.className = "sample";
+        button.textContent = sample;
+        button.type = "button";
+        button.addEventListener("click", () => {
+          els.input.value = sample;
+        });
+        els.sampleList.appendChild(button);
+      });
+
+      els.run.addEventListener("click", runCommand);
+      els.flush.addEventListener("click", flushWorkspace);
+      els.reset.addEventListener("click", resetWorkspace);
+      els.input.addEventListener("keydown", (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !busy) {
+          runCommand();
+        }
+      });
+
+      refreshState();
+    </script>
+  </body>
+</html>

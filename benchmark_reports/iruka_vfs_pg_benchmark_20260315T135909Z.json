@@ -1,0 +1,149 @@
+{
+  "report_version": 1,
+  "started_at": "2026-03-15T13:58:44.186195+00:00",
+  "ended_at": "2026-03-15T13:59:09.162603+00:00",
+  "duration_seconds": 24.976408,
+  "database": {
+    "host": "pgm-6we50rtg1rc9d3qtpo.pgsql.japan.rds.aliyuncs.com",
+    "database": "file_sys",
+    "driver": "postgresql+psycopg"
+  },
+  "parameters": {
+    "workspace_count": 2,
+    "commands_per_workspace": 6,
+    "latency_iterations": 5,
+    "warmup_iterations": 1,
+    "chapter_bytes": 65536,
+    "tenant_prefix": "bench",
+    "keep_data": false
+  },
+  "single_workspace_latency": [
+    {
+      "name": "ensure_warm",
+      "units": "ms",
+      "count": 5,
+      "min": 0.45891618356108665,
+      "max": 1.2524169869720936,
+      "mean": 0.9027249179780483,
+      "median": 1.0036248713731766,
+      "p95": 1.2429669499397278,
+      "p99": 1.2505269795656204,
+      "stdev": 0.35934761597606235
+    },
+    {
+      "name": "cat_chapter",
+      "units": "ms",
+      "count": 5,
+      "min": 146.37162536382675,
+      "max": 151.7334170639515,
+      "mean": 149.0837669931352,
+      "median": 149.27441719919443,
+      "p95": 151.24724190682173,
+      "p99": 151.63618203252554,
+      "stdev": 1.909249189075471
+    },
+    {
+      "name": "wc_chapter",
+      "units": "ms",
+      "count": 5,
+      "min": 146.70625003054738,
+      "max": 159.22087524086237,
+      "mean": 149.86471645534039,
+      "median": 147.83929102122784,
+      "p95": 157.01468335464597,
+      "p99": 158.7796368636191,
+      "stdev": 5.25971150808143
+    },
+    {
+      "name": "search_workspace",
+      "units": "ms",
+      "count": 5,
+      "min": 153.29500008374453,
+      "max": 164.1565002501011,
+      "mean": 158.4023417904973,
+      "median": 157.90358325466514,
+      "p95": 163.26820021495223,
+      "p99": 163.97884024307132,
+      "stdev": 3.97809010176224
+    },
+    {
+      "name": "write_note_redirect",
+      "units": "ms",
+      "count": 5,
+      "min": 144.56974994391203,
+      "max": 161.82266687974334,
+      "mean": 150.25860844179988,
+      "median": 148.3436250127852,
+      "p95": 159.7677585668862,
+      "p99": 161.4116852171719,
+      "stdev": 7.05301840484679
+    },
+    {
+      "name": "edit_chapter",
+      "units": "ms",
+      "count": 5,
+      "min": 143.84541613981128,
+      "max": 162.27699955925345,
+      "mean": 152.5904999114573,
+      "median": 153.14225014299154,
+      "p95": 161.054424662143,
+      "p99": 162.03248457983136,
+      "stdev": 7.229321622585048
+    },
+    {
+      "name": "flush",
+      "units": "ms",
+      "count": 0,
+      "min": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "median": 0.0,
+      "p95": 0.0,
+      "p99": 0.0,
+      "stdev": 0.0,
+      "attempts": 5,
+      "failures": 5,
+      "success_rate": 0.0
+    }
+  ],
+  "concurrency": {
+    "workspace_count": 2,
+    "total_commands": 12,
+    "successful_commands": 12,
+    "wall_time_seconds": 2.9509147498756647,
+    "throughput_qps": 4.066535639670923,
+    "command_log_rows": 0,
+    "flush_failures": 2,
+    "command_latency_ms": {
+      "name": "concurrent_commands",
+      "units": "ms",
+      "count": 12,
+      "min": 146.7917081899941,
+      "max": 302.0524587482214,
+      "mean": 175.33739931726208,
+      "median": 166.4362286683172,
+      "p95": 237.78963340446342,
+      "p99": 289.1998936794699,
+      "stdev": 41.606003712001375
+    },
+    "flush_latency_ms": {
+      "name": "concurrent_flush",
+      "units": "ms",
+      "count": 0,
+      "min": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "median": 0.0,
+      "p95": 0.0,
+      "p99": 0.0,
+      "stdev": 0.0,
+      "attempts": 2,
+      "failures": 2,
+      "success_rate": 0.0
+    }
+  },
+  "cleanup": {
+    "performed": true,
+    "tenant_pattern": "bench_20260315T135844Z%"
+  }
+}
