@@ -102,14 +102,22 @@ workspace = create_workspace(
         read_text=load_text,
         write_text=save_text,
     ),
+    workspace_files={
+        "/workspace/docs/brief.md": "# Brief\n\nSeeded from Python.\n",
+        "notes/todo.txt": "- inspect outline\n",
+    },
     context_files={"outline.md": outline_text},
     skill_files={"index.md": skill_text},
 )
 ```
 
-随后宿主侧只需要围绕三个动作展开：
+随后宿主侧通常围绕几类动作展开：
 
 - `workspace.ensure(db)`：准备虚拟工作区
+- `workspace.write_file(db, path, content)`：通过 Python 直接写虚拟文件
+- `workspace.read_file(db, path)`：通过 Python 直接读单个虚拟文件
+- `workspace.read_directory(db, path)`：批量读取某个目录下的文件内容
+- `workspace.enter_agent_mode(db)` / `workspace.enter_host_mode(db)`：切换 workspace 控制权
 - `workspace.bash(db, "...")`：执行一条虚拟 shell 命令
 - `workspace.flush()`：在明确的持久化边界回写
 
@@ -122,6 +130,7 @@ workspace = create_workspace(
 - `runtime_key`：运行时身份
 - `tenant_id`：租户隔离键
 - `primary_file`：一个可写的外部文件源
+- `workspace_files`：初始化时批量注入到 `/workspace/...` 下的文件
 - `context_files`：上下文文件
 - `skill_files`：技能文件
 - `metadata`：扩展元数据
@@ -138,7 +147,7 @@ workspace = create_workspace(
 
 这比直接让 Agent 读写宿主 ORM 模型更干净。宿主只要实现“读文本”和“写文本”两个动作，VFS 就能接管后续的编辑、版本推进和命令执行。
 
-## 四、核心流程：`ensure -> bash -> flush`
+## 四、核心流程：`ensure -> (python file api | bash) -> flush`
 
 这个项目的主线并不复杂，但设计得很完整。按执行顺序看，最关键的是三个阶段。
 
@@ -156,7 +165,7 @@ workspace = create_workspace(
    - `/workspace/notes`
    - `/workspace/context`
    - `/workspace/skills`
-4. 把主文件、上下文文件、技能文件同步到虚拟节点表。
+4. 把主文件、`workspace_files`、上下文文件、技能文件同步到虚拟节点表。
 5. 更新 workspace 元数据，例如虚拟主文件路径、可写根目录、上下文文件列表等。
 6. 创建或获取 shell session。
 7. 基于数据库中的所有节点构建一份 `WorkspaceMirror`。
@@ -173,7 +182,73 @@ workspace = create_workspace(
 
 这比把宿主概念直接暴露给模型更稳，因为模型面对的是统一文件语义，而不是业务对象语义。
 
-## 六、`bash`：不是调用系统 shell，而是执行一套受控命令运行时
+## 六、workspace 现在有显式的 `host / agent` 访问模式
+
+这次接口演进里，最重要的变化不是新增了几个方法，而是明确了 workspace 的控制权模型。
+
+当前实现把 workspace 分成两种互斥模式：
+
+- `host` 模式：允许宿主通过 Python API 直接读写文件
+- `agent` 模式：允许 Agent 通过 `workspace.bash(...)` 操作工作区
+
+默认情况下，`workspace.ensure(db)` 完成后 workspace 处于 `host` 模式。要把它交给 Agent，宿主需要显式调用：
+
+```python
+workspace.enter_agent_mode(db)
+```
+
+Agent 使用完成后，如果宿主还要直接读写文件，则需要切回：
+
+```python
+workspace.enter_host_mode(db)
+```
+
+这个改造的意义在于把“宿主侧文件操作”和“Agent 命令执行”变成阶段性互斥关系，而不是共享同一份可变运行时状态。这样更符合这套 runtime 当前的 workspace 级锁模型，也更容易定义 `flush()` 的边界。
+
+## 七、除了 `bash`，宿主现在也可以直接通过 Python API 管理文件
+
+这个项目最初更偏向“给 Agent 一个 shell 风格工作区”，但从宿主接入体验看，仅有 `workspace.bash(...)` 其实还不够顺手。很多场景下，宿主需要在不经过命令解释器的情况下直接做三件事：
+
+- 初始化一批文件和目录
+- 往某个虚拟路径直接写内容
+- 批量读取某个目录下的文件内容
+
+现在这套能力已经直接暴露在 workspace facade 上：
+
+```python
+workspace = create_workspace(
+    workspace=workspace_row,
+    tenant_id="demo",
+    runtime_key="workspace:1",
+    primary_file=primary_file,
+    workspace_files={
+        "/workspace/docs/brief.md": "# Brief",
+        "notes/todo.txt": "- host seeded",
+    },
+)
+
+workspace.ensure(db)
+workspace.write_file(db, "/workspace/docs/generated.md", "hello")
+brief = workspace.read_file(db, "/workspace/docs/brief.md")
+docs = workspace.read_directory(db, "/workspace/docs")
+workspace.enter_agent_mode(db)
+```
+
+这组 API 的设计有几个特点：
+
+1. `workspace_files` 支持初始化时批量注入文件，父目录自动创建。
+2. 相对路径会自动挂到 `/workspace` 下。
+3. 路径不允许越出 `/workspace` 根目录。
+4. `read_directory(...)` 返回 `{virtual_path: content}` 映射，适合宿主侧做批处理。
+
+这样一来，宿主就有两条并行能力：
+
+- 用 `workspace.bash(...)` 给 Agent 一个受控 shell 运行时
+- 用 Python facade 直接做宿主侧文件读写
+
+但这两条能力不是并行开放，而是通过 `host / agent` 模式切换来交接控制权。这比把所有文件动作都包装成命令字符串更实用，也更适合业务系统接入。
+
+## 八、`bash`：不是调用系统 shell，而是执行一套受控命令运行时
 
 `workspace.bash(db, raw_cmd)` 会进入 `run_virtual_bash()`，再走到 `iruka_vfs/command_runtime.py`。
 
@@ -240,7 +315,7 @@ workspace = create_workspace(
 
 它内部还实现了一个轻量级 unified diff 应用器 `_apply_unified_patch()`，会检查上下文行、删除行和新增行是否匹配，并在失败时返回冲突信息。对 Agent 系统来说，这一点很关键，因为它能把“补丁失败”变成一个结构化反馈，而不是一段含糊的异常文本。
 
-## 七、真正的性能关键：`WorkspaceMirror`
+## 九、真正的性能关键：`WorkspaceMirror`
 
 如果只把这套系统理解成“数据库里存一棵虚拟文件树”，那就低估了它。
 
@@ -250,7 +325,7 @@ workspace = create_workspace(
 
 `WorkspaceMirror` 定义在 `iruka_vfs/models.py`，本质上是一份工作区在运行时内存中的完整镜像，包含：
 
-- 当前 workspace、chapter、session 标识
+- 当前 workspace、session 标识
 - 所有节点的克隆副本 `nodes`
 - 路径索引 `path_to_id`
 - 父子关系索引 `children_by_parent`
@@ -275,7 +350,7 @@ workspace = create_workspace(
 
 `build_workspace_mirror()` 的实现也很说明问题：它先把整棵工作区节点读出，再逐个 clone，然后重建路径和 children 索引。这基本就是把数据库里的工作区加载成一个可快速查询、可局部变更的内存模型。
 
-## 八、写路径设计：先写 mirror，再 checkpoint / flush
+## 十、写路径设计：先写 mirror，再 checkpoint / flush
 
 `_write_file()` 很能体现这个系统的取舍。
 
@@ -301,7 +376,7 @@ workspace = create_workspace(
 
 前者更偏“完整运行时”，后者更偏“内容热缓存”。
 
-## 九、Checkpoint 与 `flush()`：把运行时脏状态安全落回持久层
+## 十一、Checkpoint 与 `flush()`：把运行时脏状态安全落回持久层
 
 这个项目没有把 `flush` 简化成“一次数据库提交”，而是实现了比较完整的 checkpoint 机制。
 
@@ -332,7 +407,7 @@ workspace = create_workspace(
 
 这说明作者已经把它当成一个长期运行的 runtime，而不是 demo 级别脚本。对于 Agent 系统来说，这是很重要的成熟度信号，因为一旦开始支持多轮编辑、后台执行和异步回写，失败恢复就是必要能力，不是锦上添花。
 
-## 十、Memory Cache：另一条更细粒度的性能优化路径
+## 十二、Memory Cache：另一条更细粒度的性能优化路径
 
 除了 workspace mirror，项目还在 `iruka_vfs/memory_cache.py` 中实现了文件内容缓存。
 
@@ -356,7 +431,7 @@ WHERE id = :file_id AND version_no = :expected_version_no
 
 虽然在有 workspace mirror 的路径上，memory cache 未必是主要热路径，但它让系统具备了另一种退化运行能力：即使没有完整 mirror，单文件读写也不必每次都直达数据库。
 
-## 十一、数据模型设计：把“运行时对象”拆得足够清楚
+## 十三、数据模型设计：把“运行时对象”拆得足够清楚
 
 从 demo 里的模型可以看出，系统最核心的持久化对象只有四类：
 
@@ -374,7 +449,7 @@ WHERE id = :file_id AND version_no = :expected_version_no
 
 也就是说，这个系统不是“给业务表加几个字段”，而是建立了一套完整的运行时数据模型。业务系统只需要保存自己的主对象，再把需要暴露给 Agent 的内容投影进这套模型里。
 
-## 十二、依赖注入：让运行时和宿主解耦
+## 十四、依赖注入：让运行时和宿主解耦
 
 `iruka_vfs/dependencies.py` 只有很少的代码，但地位很重要。
 
@@ -391,7 +466,7 @@ WHERE id = :file_id AND version_no = :expected_version_no
 
 从工程实践上说，这是一个很正确的切分方式。Agent runtime 应该依赖抽象边界，而不是吞掉宿主业务上下文。
 
-## 十三、一个最小示例如何串起整套机制
+## 十五、一个最小示例如何串起整套机制
 
 `examples/standalone_sqlite_demo.py` 是理解这个项目的最佳入口。
 
@@ -403,14 +478,17 @@ WHERE id = :file_id AND version_no = :expected_version_no
 4. 用 `WritableFileSource` 把一份章节文本挂载到 `/workspace/chapters/chapter_1.md`。
 5. 调用：
    - `workspace.ensure(db)`
+   - `workspace.write_file(db, ...)`
+   - `workspace.enter_agent_mode(db)`
    - `workspace.bash(db, "cat ...")`
    - `workspace.bash(db, "edit ...")`
+   - `workspace.enter_host_mode(db)`
    - `workspace.flush()`
 6. 最后检查宿主文本是否被成功回写。
 
 这个 demo 很能说明 `iruka_vfs` 的真正价值：它不是为了“模拟 shell”，而是为了把宿主文件变成一个可交互、可编辑、可持久化的 Agent 工作区。
 
-## 十四、这个设计最值得借鉴的几个点
+## 十六、这个设计最值得借鉴的几个点
 
 如果从系统设计角度总结，我认为这个项目最值得借鉴的是下面几点。
 
@@ -432,19 +510,19 @@ WHERE id = :file_id AND version_no = :expected_version_no
 
 checkpoint retry、dead letter、错误 payload、异步日志截断，这些都说明实现者没有把系统当成单机 demo，而是按真实服务组件在设计。
 
-## 十五、当前实现的边界与可以继续演进的方向
+## 十七、当前实现的边界与可以继续演进的方向
 
 当然，这套实现也有明确边界。
 
 第一，它不是完整 shell，命令集是受限的。这是优点，也是约束。如果未来要支持更复杂的命令组合、glob、环境变量替换，解析层还需要继续扩展。
 
-第二，它已经在 README 中明确说明，同一个 workspace 不应该并发执行 `workspace.bash(...)`。这说明当前并发模型是“单工作区串行执行”优先，适合多数 Agent 场景，但如果以后要支持同一工作区多执行流协同，还需要更细粒度的并发控制。
+第二，它已经明确把 workspace 的控制权切成 `host / agent` 两种模式，并且 README 里也说明同一个 workspace 不应该并发执行 `workspace.bash(...)`。这说明当前并发模型是“单工作区串行执行 + 阶段性交接”优先，适合多数 Agent 场景，但如果以后要支持同一工作区多执行流协同，还需要更细粒度的并发控制。
 
 第三，当前主写路径依赖运行时 mirror 与后台 checkpoint。这个设计很高效，但也要求宿主能够接受“显式 flush 才算 durable”这件事。如果宿主业务需要每个命令都强持久化，那么接入策略需要调整。
 
 第四，路径权限控制目前主要围绕虚拟根目录和可写路径展开。若要面向更复杂的多角色、多文件权限体系，后续可以继续把 ACL 抽象出来。
 
-## 十六、总结：`iruka_vfs` 本质上是在给 Agent 提供一个真正可运行的工作区
+## 十八、总结：`iruka_vfs` 本质上是在给 Agent 提供一个真正可运行的工作区
 
 如果用一句话概括这个项目，我会这样描述：
 
@@ -466,7 +544,7 @@ checkpoint retry、dead letter、错误 payload、异步日志截断，这些都
 
 ## 附：可作为文中引用的源码位置
 
-- `iruka_vfs/workspace.py`：对外工作区句柄与 `ensure/bash/flush`
+- `iruka_vfs/workspace.py`：对外工作区句柄与 `ensure`、模式切换、`bash`、`flush`
 - `iruka_vfs/service.py`：核心服务入口、初始化、写入、flush
 - `iruka_vfs/command_parser.py`：命令链、管道、重定向解析
 - `iruka_vfs/command_runtime.py`：命令执行分发

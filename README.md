@@ -74,7 +74,9 @@ workspace.ensure(db)
 workspace.write_file(db, "/workspace/docs/generated.md", "hello from host")
 content = workspace.read_file(db, "/workspace/docs/brief.md")
 files = workspace.read_directory(db, "/workspace/docs")
+workspace.enter_agent_mode(db)
 result = workspace.bash(db, "cat /workspace/chapters/chapter_123.md")
+workspace.enter_host_mode(db)
 workspace.flush()
 ```
 
@@ -88,6 +90,7 @@ Besides `workspace.bash(...)`, the host can manage virtual workspace files direc
 - `workspace.write_file(db, path, content)`
 - `workspace.read_file(db, path)`
 - `workspace.read_directory(db, path, recursive=True)`
+- `workspace.enter_agent_mode(db)` / `workspace.enter_host_mode(db)`
 
 Notes:
 
@@ -95,6 +98,8 @@ Notes:
 - Parent directories are created automatically on write
 - Paths must stay under `/workspace`
 - `read_directory(...)` returns a `{virtual_path: content}` mapping
+- `write_file(...)`, `read_file(...)`, and `read_directory(...)` require `host` mode
+- `workspace.bash(...)` requires `agent` mode
 
 ## Workspace Lifecycle
 

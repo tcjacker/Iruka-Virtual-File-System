@@ -53,6 +53,40 @@ class VirtualWorkspace:
 
         return service.flush_workspace(self.workspace_id, tenant_id=self.tenant_id)
 
+    def enter_agent_mode(self, db: Session, *, flush: bool = True) -> str:
+        from iruka_vfs import service
+
+        return service.set_workspace_access_mode(
+            db,
+            self.workspace,
+            runtime_seed=self.runtime_seed,
+            mode="agent",
+            tenant_id=self.tenant_id,
+            flush=flush,
+        )
+
+    def enter_host_mode(self, db: Session, *, flush: bool = True) -> str:
+        from iruka_vfs import service
+
+        return service.set_workspace_access_mode(
+            db,
+            self.workspace,
+            runtime_seed=self.runtime_seed,
+            mode="host",
+            tenant_id=self.tenant_id,
+            flush=flush,
+        )
+
+    def access_mode(self, db: Session) -> str:
+        from iruka_vfs import service
+
+        return service.get_workspace_access_mode(
+            db,
+            self.workspace,
+            runtime_seed=self.runtime_seed,
+            tenant_id=self.tenant_id,
+        )
+
     def write_file(self, db: Session, path: str, content: str) -> dict[str, Any]:
         from iruka_vfs import service
 

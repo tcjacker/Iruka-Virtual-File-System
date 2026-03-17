@@ -33,6 +33,8 @@ from iruka_vfs.constants import (
     VFS_COMMAND_LOG_MAX_STDERR_CHARS,
     VFS_COMMAND_LOG_MAX_STDOUT_CHARS,
     VFS_COMMAND_LOG_MAX_ARTIFACT_CHARS,
+    VFS_ACCESS_MODE_AGENT,
+    VFS_ACCESS_MODE_HOST,
     VFS_CONTEXT_ROOT,
     VFS_NOTES_ROOT,
     VFS_ROOT,
@@ -373,6 +375,7 @@ def ensure_virtual_workspace(
         metadata["virtual_writable_roots"] = [VFS_ROOT]
         metadata["virtual_readonly_roots"] = []
         metadata["virtual_notes_dir"] = VFS_NOTES_ROOT
+        metadata["virtual_access_mode"] = _workspace_access_mode_from_metadata(metadata)
         metadata["virtual_workspace_files"] = sorted(_normalize_workspace_path(path, require_file=True) for path in seed.workspace_files)
         metadata["virtual_context_files"] = sorted(seed.context_files.keys())
         metadata["virtual_skill_files"] = sorted(seed.skill_files.keys())
@@ -480,6 +483,36 @@ def _seed_workspace_file(db: Session, workspace_id: int, path: str, content: str
     }
 
 
+def _workspace_access_mode_from_metadata(metadata: dict[str, Any] | None) -> str:
+    raw_mode = str(dict(metadata or {}).get("virtual_access_mode") or VFS_ACCESS_MODE_HOST).strip().lower()
+    if raw_mode not in {VFS_ACCESS_MODE_HOST, VFS_ACCESS_MODE_AGENT}:
+        return VFS_ACCESS_MODE_HOST
+    return raw_mode
+
+
+def _workspace_access_mode_for_runtime(workspace: AgentWorkspace | None, workspace_id: int, tenant_key: str, scope_key: str | None = None) -> str:
+    mirror = _get_workspace_mirror_api(workspace_id, tenant_key=tenant_key, scope_key=scope_key)
+    if mirror:
+        with mirror.lock:
+            return _workspace_access_mode_from_metadata(dict(mirror.workspace_metadata or {}))
+    return _workspace_access_mode_from_metadata(dict(getattr(workspace, "metadata_json", {}) or {}))
+
+
+def _assert_workspace_access_mode(
+    workspace: AgentWorkspace,
+    *,
+    tenant_key: str,
+    required_mode: str,
+    scope_key: str | None = None,
+) -> str:
+    actual_mode = _workspace_access_mode_for_runtime(workspace, int(workspace.id), tenant_key, scope_key=scope_key)
+    if actual_mode != required_mode:
+        raise PermissionError(
+            f"workspace access mode is '{actual_mode}', required '{required_mode}'"
+        )
+    return actual_mode
+
+
 def flush_workspace(workspace_id: int, tenant_id: str | None = None) -> bool:
     tenant_key = _effective_tenant_key(tenant_id)
     mirror = _get_workspace_mirror_api(workspace_id, tenant_key=tenant_key)
@@ -508,6 +541,83 @@ def flush_workspace(workspace_id: int, tenant_id: str | None = None) -> bool:
     return ok
 
 
+def get_workspace_access_mode(
+    db: Session,
+    workspace: AgentWorkspace,
+    *,
+    runtime_seed: RuntimeSeed,
+    tenant_id: str | None = None,
+) -> str:
+    tenant_key = _assert_workspace_tenant(workspace, tenant_id)
+    scope_key = _workspace_scope_for_db(db)
+    ensure_virtual_workspace(
+        db,
+        workspace,
+        runtime_seed,
+        include_tree=False,
+        tenant_id=tenant_key,
+    )
+    return _workspace_access_mode_for_runtime(workspace, int(workspace.id), tenant_key, scope_key=scope_key)
+
+
+def set_workspace_access_mode(
+    db: Session,
+    workspace: AgentWorkspace,
+    *,
+    runtime_seed: RuntimeSeed,
+    mode: str,
+    tenant_id: str | None = None,
+    flush: bool = True,
+) -> str:
+    tenant_key = _assert_workspace_tenant(workspace, tenant_id)
+    normalized_mode = str(mode or "").strip().lower()
+    if normalized_mode not in {VFS_ACCESS_MODE_HOST, VFS_ACCESS_MODE_AGENT}:
+        raise ValueError(f"unsupported workspace access mode: {mode}")
+    scope_key = _workspace_scope_for_db(db)
+    ensure_virtual_workspace(
+        db,
+        workspace,
+        runtime_seed,
+        include_tree=False,
+        tenant_id=tenant_key,
+    )
+    if flush:
+        flush_workspace(int(workspace.id), tenant_id=tenant_key)
+    mirror = _get_workspace_mirror_api(int(workspace.id), tenant_key=tenant_key, scope_key=scope_key)
+    if not mirror:
+        raise ValueError(f"workspace mirror missing for workspace {workspace.id}")
+    lock, _ = _workspace_lock_api(mirror)
+    if not lock.acquire(blocking=True):
+        raise TimeoutError(f"failed to acquire workspace lock: {workspace.id}")
+    try:
+        current = _get_workspace_mirror_api(int(workspace.id), tenant_key=tenant_key, scope_key=scope_key)
+        if not current:
+            raise ValueError(f"workspace mirror missing for workspace {workspace.id}")
+        with current.lock:
+            metadata = dict(current.workspace_metadata or {})
+            current_mode = _workspace_access_mode_from_metadata(metadata)
+            if current_mode == normalized_mode:
+                return current_mode
+            metadata["virtual_access_mode"] = normalized_mode
+            current.workspace_metadata = metadata
+            current.dirty_workspace_metadata = True
+            current.revision += 1
+            workspace.metadata_json = metadata
+            _repositories.workspace.update_workspace_metadata(
+                db,
+                workspace_id=int(workspace.id),
+                tenant_key=tenant_key,
+                metadata_json=metadata,
+            )
+            _set_workspace_mirror_api(current)
+            return normalized_mode
+    finally:
+        try:
+            lock.release()
+        except Exception:
+            pass
+
+
 def run_virtual_bash(
     db: Session,
     workspace: AgentWorkspace,
@@ -529,6 +639,12 @@ def run_virtual_bash(
             seed,
             include_tree=False,
             tenant_id=tenant_key,
+        )
+        _assert_workspace_access_mode(
+            workspace,
+            tenant_key=tenant_key,
+            required_mode=VFS_ACCESS_MODE_AGENT,
+            scope_key=_workspace_scope_for_db(db),
         )
         initial_mirror = _get_workspace_mirror_api(workspace.id, tenant_key=tenant_key)
         if not initial_mirror:
@@ -630,6 +746,12 @@ def write_workspace_file(
         include_tree=False,
         tenant_id=tenant_key,
     )
+    _assert_workspace_access_mode(
+        workspace,
+        tenant_key=tenant_key,
+        required_mode=VFS_ACCESS_MODE_HOST,
+        scope_key=_workspace_scope_for_db(db),
+    )
     normalized = _normalize_workspace_path(path, require_file=True)
     session = _get_or_create_session(db, int(workspace.id))
     allowed, deny_reason = _allow_write_path(db, session, normalized)
@@ -660,6 +782,12 @@ def read_workspace_file(
         include_tree=False,
         tenant_id=tenant_key,
     )
+    _assert_workspace_access_mode(
+        workspace,
+        tenant_key=tenant_key,
+        required_mode=VFS_ACCESS_MODE_HOST,
+        scope_key=_workspace_scope_for_db(db),
+    )
     normalized = _normalize_workspace_path(path, require_file=True)
     session = _get_or_create_session(db, int(workspace.id))
     node = _resolve_path(db, int(workspace.id), int(session.cwd_node_id), normalized)
@@ -684,6 +812,12 @@ def read_workspace_directory(
         runtime_seed,
         include_tree=False,
         tenant_id=tenant_key,
+    )
+    _assert_workspace_access_mode(
+        workspace,
+        tenant_key=tenant_key,
+        required_mode=VFS_ACCESS_MODE_HOST,
+        scope_key=_workspace_scope_for_db(db),
     )
     normalized = _normalize_workspace_path(path)
     session = _get_or_create_session(db, int(workspace.id))

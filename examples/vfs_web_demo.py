@@ -321,6 +321,7 @@ class DemoApp:
                     },
                 )
                 self.workspace_handle.ensure(db, include_tree=False)
+                self.workspace_handle.enter_agent_mode(db)
             return self.get_state()
 
     def run_command(self, command: str) -> dict[str, Any]:

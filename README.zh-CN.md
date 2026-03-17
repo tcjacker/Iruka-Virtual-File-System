@@ -76,7 +76,9 @@ workspace.ensure(db)
 workspace.write_file(db, "/workspace/docs/generated.md", "hello from host")
 content = workspace.read_file(db, "/workspace/docs/brief.md")
 files = workspace.read_directory(db, "/workspace/docs")
+workspace.enter_agent_mode(db)
 result = workspace.bash(db, "cat /workspace/chapters/chapter_123.md")
+workspace.enter_host_mode(db)
 workspace.flush()
 ```
 
@@ -90,6 +92,7 @@ workspace.flush()
 - `workspace.write_file(db, path, content)`
 - `workspace.read_file(db, path)`
 - `workspace.read_directory(db, path, recursive=True)`
+- `workspace.enter_agent_mode(db)` / `workspace.enter_host_mode(db)`
 
 说明：
 
@@ -97,6 +100,8 @@ workspace.flush()
 - 写文件时会自动创建父目录
 - 路径必须位于 `/workspace` 之内
 - `read_directory(...)` 返回 `{virtual_path: content}` 映射
+- `write_file(...)`、`read_file(...)`、`read_directory(...)` 只能在 `host` 模式使用
+- `workspace.bash(...)` 只能在 `agent` 模式使用
 
 ## Workspace 生命周期
 

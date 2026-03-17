@@ -211,6 +211,7 @@ def main() -> None:
 
         snapshot = workspace.ensure(db)
         print("tree:\n", snapshot.get("tree") or "")
+        workspace.enter_agent_mode(db)
 
         read_result = workspace.bash(db, "cat /workspace/chapters/chapter_1.md")
         print("cat stdout:\n", read_result["stdout"])

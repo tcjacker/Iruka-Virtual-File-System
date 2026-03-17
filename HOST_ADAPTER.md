@@ -54,7 +54,9 @@ workspace.ensure(db)
 workspace.write_file(db, "/workspace/docs/generated.md", "from host adapter")
 brief_text = workspace.read_file(db, "/workspace/docs/brief.md")
 doc_files = workspace.read_directory(db, "/workspace/docs")
+workspace.enter_agent_mode(db)
 result = workspace.bash(db, "edit /workspace/chapters/chapter_123.md --find foo --replace bar")
+workspace.enter_host_mode(db)
 workspace.flush()
 ```
 
@@ -70,6 +72,8 @@ Required constraints:
 - do not share one live SQLAlchemy `Session` across requests or threads
 - prefer storing only workspace identifiers and source bindings in a reusable adapter object
 - bind the current request's DB session when calling `workspace.ensure(db)` and `workspace.bash(db, "...")`
+- switch to `agent` mode before calling `workspace.bash(db, "...")`
+- switch back to `host` mode before direct host-side file reads or writes
 - keep `workspace.flush()` as an explicit end-of-turn durability action
 
 This keeps Redis-backed workspace state reusable while avoiding stale DB sessions and request-crossing runtime objects.

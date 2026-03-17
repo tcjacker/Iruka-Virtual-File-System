@@ -393,6 +393,7 @@ def prepare_workspace(
             skill_files=skill_files,
         )
         handle.ensure(db, include_tree=False)
+        handle.enter_agent_mode(db)
         db.commit()
 
     return BenchmarkWorkspace(
