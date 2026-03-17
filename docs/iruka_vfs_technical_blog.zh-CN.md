@@ -56,7 +56,7 @@ Host Models / External Files
 
 这里最关键的点有两个：
 
-1. 它把“业务文件”映射进一个统一的虚拟目录树里，例如主文件会被挂载到 `/workspace/chapters/...`。
+1. 它把“业务文件”映射进一个统一的虚拟目录树里，例如主文件会被挂载到 `/workspace/files/...`。
 2. 它把“命令执行态”从数据库里抽出来，优先落在运行时镜像和缓存里，再通过显式 `flush()` 或后台 checkpoint 回写。
 
 这种设计非常适合以下场景：
@@ -97,8 +97,8 @@ workspace = create_workspace(
     tenant_id="demo",
     runtime_key="workspace:1",
     primary_file=WritableFileSource(
-        file_id="chapter:1",
-        virtual_path="/workspace/chapters/chapter_1.md",
+        file_id="document:1",
+        virtual_path="/workspace/files/document_1.md",
         read_text=load_text,
         write_text=save_text,
     ),
@@ -161,7 +161,7 @@ workspace = create_workspace(
 2. 注册 `RuntimeSeed`，建立当前 workspace 的运行时上下文。
 3. 创建根目录以及固定目录结构：
    - `/workspace`
-   - `/workspace/chapters`
+   - `/workspace/files`
    - `/workspace/notes`
    - `/workspace/context`
    - `/workspace/skills`
@@ -174,7 +174,7 @@ workspace = create_workspace(
 
 ```text
 /workspace
-  /chapters
+  /files
   /notes
   /context
   /skills
@@ -475,7 +475,7 @@ WHERE id = :file_id AND version_no = :expected_version_no
 1. 用 SQLAlchemy 定义 demo 版 workspace、node、session、command 表。
 2. 用 `InMemoryRedis` 模拟 Redis。
 3. 创建一条宿主 workspace 记录。
-4. 用 `WritableFileSource` 把一份章节文本挂载到 `/workspace/chapters/chapter_1.md`。
+4. 用 `WritableFileSource` 把一份业务文档文本挂载到 `/workspace/files/document_1.md`。
 5. 调用：
    - `workspace.ensure(db)`
    - `workspace.write_file(db, ...)`
