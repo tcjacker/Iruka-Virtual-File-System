@@ -217,8 +217,8 @@ def utc_now() -> datetime:
 
 def default_db_url() -> str:
     return (
-        "postgresql+psycopg://file_user:Buyaole88@"
-        "pgm-6we50rtg1rc9d3qtpo.pgsql.japan.rds.aliyuncs.com:5432/file_sys"
+        "postgresql+psycopg:// xxx:xxx"
+        "xxxx:5432/xxx"
     )
 
 
@@ -251,8 +251,12 @@ def configure_dependencies(db_url: str) -> None:
     )
 
     from iruka_vfs import service as vfs_service
+    from iruka_vfs.service_ops import state as service_state
 
-    vfs_service._redis_client = InMemoryRedis()
+    # Keep both compatibility locations aligned while benchmark scripts still import the old facade.
+    fake_redis = InMemoryRedis()
+    vfs_service._redis_client = fake_redis
+    service_state._redis_client = fake_redis
 
 
 def percentile(values: list[float], pct: float) -> float:
@@ -384,7 +388,7 @@ def prepare_workspace(
             runtime_key=runtime_key,
             primary_file=WritableFileSource(
                 file_id=f"file:{file_index}",
-                virtual_path=f"/workspace/chapters/chapter_{file_index}.md",
+                virtual_path=f"/workspace/files/document_{file_index}.md",
                 read_text=chapter_store.read,
                 write_text=chapter_store.write,
                 metadata={"source_type": "benchmark"},
@@ -432,10 +436,10 @@ def cleanup_benchmark_data(session_factory: sessionmaker, tenant_pattern: str) -
 def workspace_job(session_factory: sessionmaker, bench_workspace: BenchmarkWorkspace, commands_per_workspace: int) -> dict[str, Any]:
     command_latencies_ms: list[float] = []
     exit_codes: list[int] = []
-    chapter_path = f"/workspace/chapters/chapter_{bench_workspace.virtual_file_id}.md"
+    chapter_path = f"/workspace/files/document_{bench_workspace.virtual_file_id}.md"
     command_plan = [
-        "cat /workspace/chapters/chapter_1.md",
-        "wc /workspace/chapters/chapter_1.md",
+        "cat /workspace/files/document_1.md",
+        "wc /workspace/files/document_1.md",
         "rg marker /workspace",
         "echo worker-note > /workspace/notes/worker_note.txt",
         "cat /workspace/notes/worker_note.txt",
@@ -448,8 +452,8 @@ def workspace_job(session_factory: sessionmaker, bench_workspace: BenchmarkWorks
                 command = f"edit {chapter_path} --find Alpha --replace ALPHA"
             else:
                 command = f"edit {chapter_path} --find ALPHA --replace Alpha"
-        elif "chapter_1.md" in command:
-            command = command.replace("chapter_1.md", f"chapter_{bench_workspace.virtual_file_id}.md")
+        elif "document_1.md" in command:
+            command = command.replace("document_1.md", f"document_{bench_workspace.virtual_file_id}.md")
         with session_factory() as db:
             started = time.perf_counter()
             result = bench_workspace.handle.bash(db, command)
@@ -489,7 +493,7 @@ def finalize_latency_suite(
     warmup_iterations: int,
     latency_iterations: int,
 ) -> list[dict[str, Any]]:
-    chapter_path = f"/workspace/chapters/chapter_{bench_workspace.virtual_file_id}.md"
+    chapter_path = f"/workspace/files/document_{bench_workspace.virtual_file_id}.md"
     results: list[dict[str, Any]] = []
 
     warmup_commands = [
@@ -634,6 +638,7 @@ def main() -> None:
 
     configure_dependencies(args.db_url)
     engine = create_engine(args.db_url, future=True, pool_pre_ping=True)
+    Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False, class_=Session)
 
     tenant_stamp = started_at.strftime("%Y%m%dT%H%M%SZ")
@@ -662,7 +667,7 @@ def main() -> None:
             primary_workspace.handle.ensure(db, include_tree=False)
 
     with session_factory() as db:
-        probe = primary_workspace.handle.bash(db, "cat /workspace/chapters/chapter_1.md")
+        probe = primary_workspace.handle.bash(db, "cat /workspace/files/document_1.md")
         if probe["exit_code"] != 0:
             raise RuntimeError(f"benchmark probe failed: {probe['stderr']}")
 

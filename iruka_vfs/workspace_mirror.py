@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from iruka_vfs.dependencies import get_vfs_dependencies
 from iruka_vfs.mirror.checkpoint import (
     ensure_workspace_checkpoint_worker,
     enqueue_workspace_checkpoint,
@@ -56,3 +57,10 @@ from iruka_vfs.mirror.serialization import (
     set_workspace_mirror,
     workspace_lock,
 )
+from iruka_vfs.sqlalchemy_repositories import build_sqlalchemy_repositories
+
+_dependencies = get_vfs_dependencies()
+_repositories = _dependencies.repositories or build_sqlalchemy_repositories(_dependencies)
+settings = _dependencies.settings
+AgentWorkspace = _dependencies.AgentWorkspace
+VirtualFileNode = _dependencies.VirtualFileNode

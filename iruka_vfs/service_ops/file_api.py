@@ -12,6 +12,7 @@ from iruka_vfs.constants import (
     ASYNC_COMMAND_LOGGING,
     VFS_ACCESS_MODE_AGENT,
     VFS_ACCESS_MODE_HOST,
+    VFS_COMMAND_LOG_MAX_ARTIFACT_CHARS,
     VFS_COMMAND_LOG_MAX_STDERR_CHARS,
     VFS_COMMAND_LOG_MAX_STDOUT_CHARS,
     VFS_ROOT,
@@ -149,7 +150,10 @@ def run_virtual_bash(
                 pass
         log_stdout, stdout_meta = truncate_for_log(result.stdout, VFS_COMMAND_LOG_MAX_STDOUT_CHARS)
         log_stderr, stderr_meta = truncate_for_log(result.stderr, VFS_COMMAND_LOG_MAX_STDERR_CHARS)
-        log_artifacts = prepare_log_artifacts(dict(result.artifacts or {}))
+        log_artifacts = prepare_log_artifacts(
+            dict(result.artifacts or {}),
+            max_chars=VFS_COMMAND_LOG_MAX_ARTIFACT_CHARS,
+        )
         log_artifacts["logging"] = {
             "stdout": stdout_meta,
             "stderr": stderr_meta,
