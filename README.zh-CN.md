@@ -19,12 +19,16 @@
 iruka_vfs_repo/
   iruka_vfs/
   examples/
+  tests/
+  docs/
   README.md
   README.zh-CN.md
   HOST_ADAPTER.md
   HOST_ADAPTER.zh-CN.md
   pyproject.toml
 ```
+
+当前包分层和依赖方向见 [docs/architecture.md](/Users/tc/ai/Iruka-Virtual-File-System/docs/architecture.md)。
 
 ## 对外 API
 
@@ -59,10 +63,10 @@ workspace = create_workspace(
     tenant_id="tenant-a",
     runtime_key="conv:1001",
     primary_file=WritableFileSource(
-        file_id="chapter:123",
-        virtual_path="/workspace/chapters/chapter_123.md",
-        read_text=load_chapter_text,
-        write_text=save_chapter_text,
+        file_id="document:123",
+        virtual_path="/workspace/files/document_123.md",
+        read_text=load_document_text,
+        write_text=save_document_text,
     ),
     workspace_files={
         "/workspace/docs/brief.md": "# Brief\n\nSeeded from Python.\n",
@@ -77,7 +81,7 @@ workspace.write_file(db, "/workspace/docs/generated.md", "hello from host")
 content = workspace.read_file(db, "/workspace/docs/brief.md")
 files = workspace.read_directory(db, "/workspace/docs")
 workspace.enter_agent_mode(db)
-result = workspace.bash(db, "cat /workspace/chapters/chapter_123.md")
+result = workspace.bash(db, "cat /workspace/files/document_123.md")
 workspace.enter_host_mode(db)
 workspace.flush()
 ```
@@ -138,4 +142,4 @@ python examples/standalone_sqlite_demo.py
 - 示例 SQLAlchemy 模型
 - 内存版 fake Redis
 
-它会创建一个 workspace，挂载一个可写章节文件，执行 `cat` 和 `edit`，然后 flush 到宿主文件源。
+它会创建一个 workspace，挂载一个可写业务文档文件，执行 `cat` 和 `edit`，然后 flush 到宿主文件源。

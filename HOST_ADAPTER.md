@@ -7,7 +7,7 @@
 The host service owns:
 
 - conversations and requests
-- chapters, documents, or other source records
+- documents, records, or other source entities
 - project or domain state
 - runtime selection for one agent execution
 
@@ -37,10 +37,10 @@ workspace = create_workspace(
     tenant_id=str(workspace_model.tenant_id),
     runtime_key=str(workspace_model.runtime_key),
     primary_file=WritableFileSource(
-        file_id=f"chapter:{chapter.id}",
-        virtual_path=f"/workspace/chapters/chapter_{chapter.id}.md",
-        read_text=lambda: chapter.body_text,
-        write_text=lambda text: save_chapter_body(chapter.id, text),
+        file_id=f"document:{document.id}",
+        virtual_path=f"/workspace/files/document_{document.id}.md",
+        read_text=lambda: document.body_text,
+        write_text=lambda text: save_document_body(document.id, text),
     ),
     workspace_files={
         "/workspace/docs/brief.md": initial_brief_text,
@@ -55,7 +55,7 @@ workspace.write_file(db, "/workspace/docs/generated.md", "from host adapter")
 brief_text = workspace.read_file(db, "/workspace/docs/brief.md")
 doc_files = workspace.read_directory(db, "/workspace/docs")
 workspace.enter_agent_mode(db)
-result = workspace.bash(db, "edit /workspace/chapters/chapter_123.md --find foo --replace bar")
+result = workspace.bash(db, "edit /workspace/files/document_123.md --find foo --replace bar")
 workspace.enter_host_mode(db)
 workspace.flush()
 ```
@@ -80,10 +80,10 @@ This keeps Redis-backed workspace state reusable while avoiding stale DB session
 
 ## Minimal Mapping
 
-Typical chapter-based host mapping:
+Typical document-based host mapping:
 
 - host conversation/request -> choose runtime/workspace
-- host chapter/document -> one writable VFS file like `/workspace/chapters/chapter_123.md`
+- host document/resource -> one writable VFS file like `/workspace/files/document_123.md`
 - host project state -> `/workspace/context/*.md`
 - host skills -> `/workspace/skills/*.md`
 
@@ -104,4 +104,4 @@ At minimum the adapter must provide:
 
 ## Reference Pattern
 
-Keep host-specific seed builders outside this repository. A host integration layer should be the only place that knows how to turn a chapter, document, or project record into VFS file sources.
+Keep host-specific seed builders outside this repository. A host integration layer should be the only place that knows how to turn a document or project record into VFS file sources.

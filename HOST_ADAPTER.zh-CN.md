@@ -7,7 +7,7 @@
 宿主服务负责：
 
 - conversations 和 requests
-- chapters、documents 等业务源数据
+- documents、records 等业务源数据
 - project 或 domain 状态
 - 单次 agent 执行所选择的 runtime
 
@@ -37,10 +37,10 @@ workspace = create_workspace(
     tenant_id=str(workspace_model.tenant_id),
     runtime_key=str(workspace_model.runtime_key),
     primary_file=WritableFileSource(
-        file_id=f"chapter:{chapter.id}",
-        virtual_path=f"/workspace/chapters/chapter_{chapter.id}.md",
-        read_text=lambda: chapter.body_text,
-        write_text=lambda text: save_chapter_body(chapter.id, text),
+        file_id=f"document:{document.id}",
+        virtual_path=f"/workspace/files/document_{document.id}.md",
+        read_text=lambda: document.body_text,
+        write_text=lambda text: save_document_body(document.id, text),
     ),
     workspace_files={
         "/workspace/docs/brief.md": initial_brief_text,
@@ -55,7 +55,7 @@ workspace.write_file(db, "/workspace/docs/generated.md", "from host adapter")
 brief_text = workspace.read_file(db, "/workspace/docs/brief.md")
 doc_files = workspace.read_directory(db, "/workspace/docs")
 workspace.enter_agent_mode(db)
-result = workspace.bash(db, "edit /workspace/chapters/chapter_123.md --find foo --replace bar")
+result = workspace.bash(db, "edit /workspace/files/document_123.md --find foo --replace bar")
 workspace.enter_host_mode(db)
 workspace.flush()
 ```
@@ -80,10 +80,10 @@ workspace.flush()
 
 ## 最小映射模型
 
-典型章节场景下的映射关系：
+典型文档场景下的映射关系：
 
 - host conversation/request -> 选择 runtime / workspace
-- host chapter/document -> 一个可写 VFS 文件，例如 `/workspace/chapters/chapter_123.md`
+- host document/resource -> 一个可写 VFS 文件，例如 `/workspace/files/document_123.md`
 - host project state -> `/workspace/context/*.md`
 - host skills -> `/workspace/skills/*.md`
 

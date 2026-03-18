@@ -19,10 +19,14 @@ It does not own host business concepts such as `Conversation`.
 iruka_vfs_repo/
   iruka_vfs/
   examples/
+  tests/
+  docs/
   README.md
   HOST_ADAPTER.md
   pyproject.toml
 ```
+
+See [`docs/architecture.md`](docs/architecture.md) for the current package layering and dependency direction.
 
 ## Public API
 

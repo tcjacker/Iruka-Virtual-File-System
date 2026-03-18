@@ -3,12 +3,7 @@ from __future__ import annotations
 from iruka_vfs.sdk.workspace_factory import create_workspace_handle
 from iruka_vfs.sdk.workspace_handle import VirtualWorkspace
 
-create_workspace = create_workspace_handle
-VirtualWorkspaceHandle = VirtualWorkspace
-
 __all__ = [
     "VirtualWorkspace",
-    "VirtualWorkspaceHandle",
-    "create_workspace",
     "create_workspace_handle",
 ]
