@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from iruka_vfs.dependencies import get_vfs_dependencies
+from iruka_vfs.dependency_resolution import resolve_vfs_repositories
 from iruka_vfs.memory_cache import (
     cache_metric_inc as _cache_metric_inc,
     ensure_mem_cache_worker as _ensure_mem_cache_worker_api,
@@ -84,7 +85,6 @@ from iruka_vfs.service_ops.state import (
     register_runtime_seed as _register_runtime_seed,
     set_cached_workspace_state as _set_cached_workspace_state,
 )
-from iruka_vfs.sqlalchemy_repositories import build_sqlalchemy_repositories
 from iruka_vfs.tree_view import render_tree_lines as _render_tree_lines
 from iruka_vfs.tree_view import render_virtual_tree
 from iruka_vfs.workspace_mirror import (
@@ -101,7 +101,6 @@ from iruka_vfs.workspace_mirror import (
     flush_workspace_mirror as _flush_workspace_mirror_api,
     get_workspace_mirror as _get_workspace_mirror,
     get_workspace_mirror as _get_workspace_mirror_api,
-    load_workspace_mirror_by_base_key as _load_workspace_mirror_by_base_key,
     mirror_has_dirty_state as _mirror_has_dirty_state,
     mirror_node_path_locked as _mirror_node_path_locked,
     rebuild_workspace_mirror_indexes_locked as _rebuild_workspace_mirror_indexes_locked,
@@ -109,25 +108,20 @@ from iruka_vfs.workspace_mirror import (
     set_active_workspace_scope as _set_active_workspace_scope,
     set_active_workspace_tenant as _set_active_workspace_tenant,
     set_workspace_mirror as _set_workspace_mirror_api,
-    workspace_due_key as _workspace_due_key,
-    workspace_enqueued_key as _workspace_enqueued_key,
     workspace_lock as _workspace_lock_api,
-    workspace_mirror_key as _workspace_mirror_key,
     workspace_scope_for_db as _workspace_scope_for_db,
 )
 
 _dependencies = get_vfs_dependencies()
-_repositories = _dependencies.repositories or build_sqlalchemy_repositories(_dependencies)
+_repositories = resolve_vfs_repositories()
 settings = _dependencies.settings
 AgentWorkspace = _dependencies.AgentWorkspace
-Chapter = _dependencies.Chapter
 VirtualFileNode = _dependencies.VirtualFileNode
 VirtualShellCommand = _dependencies.VirtualShellCommand
 VirtualShellSession = _dependencies.VirtualShellSession
 
 __all__ = [
     "AgentWorkspace",
-    "Chapter",
     "RuntimeSeed",
     "VirtualCommandResult",
     "VirtualFileNode",

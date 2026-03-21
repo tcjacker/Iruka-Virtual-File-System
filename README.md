@@ -28,6 +28,15 @@ iruka_vfs_repo/
 
 See [`docs/architecture.md`](docs/architecture.md) for the current package layering and dependency direction.
 
+The current refactor splits the package into:
+
+- public entry points: `iruka_vfs/__init__.py`, `iruka_vfs/workspace.py`
+- workspace facade and factory: `iruka_vfs/sdk/`
+- orchestration layer: `iruka_vfs/service_ops/`
+- execution internals: `iruka_vfs/runtime/`
+- mirror, pathing, cache, and repository internals: `iruka_vfs/mirror/`, `iruka_vfs/pathing/`, `iruka_vfs/cache/`, `iruka_vfs/sqlalchemy_repo/`
+- compatibility facades kept for older imports: `service.py`, `command_runtime.py`, `memory_cache.py`, `paths.py`, `sqlalchemy_repositories.py`, `workspace_mirror.py`
+
 ## Public API
 
 Stable entry points:
@@ -50,6 +59,36 @@ The recommended integration pattern is:
 5. Call `workspace.flush()` at a clear durability boundary
 
 See [`HOST_ADAPTER.md`](HOST_ADAPTER.md) for the host-side contract.
+
+## Agent Integration
+
+The recommended way to integrate with an agent runtime is:
+
+1. Configure dependencies once at process startup
+2. Build one `VirtualWorkspace` handle for one agent execution context
+3. Call `workspace.ensure(db)` before running commands
+4. Switch to agent mode with `workspace.enter_agent_mode(db)`
+5. Run commands with `workspace.bash(db, "...")`
+6. Switch back to host mode before direct host-side reads or writes
+7. Call `workspace.flush()` at an explicit durability boundary
+
+The core call path is:
+
+```text
+create_workspace(...)
+  -> sdk.workspace_factory.create_workspace_handle(...)
+  -> VirtualWorkspace
+
+VirtualWorkspace.bash(...)
+  -> service.run_virtual_bash(...)
+  -> service_ops.file_api.run_virtual_bash(...)
+  -> runtime.executor.run_command_chain(...)
+
+VirtualWorkspace.flush()
+  -> service.flush_workspace(...)
+  -> service_ops.file_api.flush_workspace(...)
+  -> mirror.checkpoint.flush_workspace_mirror(...)
+```
 
 ## Ideal SDK Shape
 

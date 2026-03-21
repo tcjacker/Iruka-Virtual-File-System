@@ -1,0 +1,429 @@
+# Iruka VFS API 接入文档
+
+本文档说明如何在业务系统里接入 `iruka_vfs`，并覆盖三种运行模式：
+
+- `persistent`
+- `ephemeral-local`
+- `ephemeral-redis`
+
+## 1. 核心概念
+
+重构后的 VFS 分成两层：
+
+- `WorkspaceStateStore`
+  Agent 运行时直接操作的 workspace 状态层，负责文件树、文件内容、cwd、dirty 状态、锁、checkpoint。
+- `VFSRepositories`
+  持久化层，负责 workspace/session/node/command_log 的落库或内存实现。
+
+三种 profile 的映射关系如下：
+
+| Profile | WorkspaceStateStore | VFSRepositories | 适用场景 |
+| --- | --- | --- | --- |
+| `persistent` | `RedisWorkspaceStateStore` | `pgsql` | 正式环境，支持持久化恢复 |
+| `ephemeral-local` | `LocalMemoryStateStore` | `memory` | 单机 demo、本地调试、最轻量接入 |
+| `ephemeral-redis` | `RedisWorkspaceStateStore` | `memory` | 多实例共享运行态，但不落数据库 |
+
+## 2. 对外入口
+
+推荐优先使用这几个对外 API：
+
+```python
+from iruka_vfs import (
+    WritableFileSource,
+    build_profile_dependencies,
+    build_profile_persistent_dependencies,
+    configure_vfs_dependencies,
+    create_workspace,
+)
+```
+
+它们分别负责：
+
+- `build_profile_dependencies(...)`
+  按 profile 组装依赖配置，适合大多数接入场景。
+- `build_profile_persistent_dependencies(...)`
+  显式构建 `persistent` 模式配置。
+- `configure_vfs_dependencies(...)`
+  注册当前进程使用的 VFS 依赖。
+- `create_workspace(...)`
+  创建一个 `VirtualWorkspace` 句柄。
+- `WritableFileSource(...)`
+  把宿主侧可读写文件映射成 VFS 中的主文件。
+
+如果你仍然直接手工构造 `VFSDependencies(...)`，现在默认也会使用内部模型：
+
+```python
+from iruka_vfs.dependencies import VFSDependencies, configure_vfs_dependencies
+
+
+configure_vfs_dependencies(
+    VFSDependencies(
+        settings=settings,
+        runtime_profile="ephemeral-local",
+    )
+)
+```
+
+只有在你显式传 `AgentWorkspace`、`VirtualFileNode`、`VirtualShellSession`、`VirtualShellCommand`、`repositories`、`workspace_state_store` 时，才属于高级自定义接入。
+
+## 2.1 高级自定义参数说明
+
+下面这几个参数都不是普通接入必填项，它们属于高级自定义入口。
+
+`AgentWorkspace`
+- 指定 workspace 主模型类。
+- repository 和 service 会基于它读写 `id`、`tenant_id`、`runtime_key`、`metadata_json` 等字段。
+- 默认已经使用内部 `VFSWorkspace`，只有你要兼容宿主已有 workspace 表时才建议传。
+
+`VirtualFileNode`
+- 指定文件树节点 ORM 模型。
+- node repository 会基于它读写目录树、文件内容、版本号等。
+- 默认已经使用内部 `VFSFileNode`，只有在兼容旧 node 表时才建议传。
+
+`VirtualShellSession`
+- 指定 shell session ORM 模型。
+- 主要用于记录 session、cwd、env、active 状态。
+- 默认已经使用内部 `VFSShellSession`。
+
+`VirtualShellCommand`
+- 指定命令日志 ORM 模型。
+- command log repository 会把 `raw_cmd`、`stdout_text`、`stderr_text`、`exit_code` 等写进去。
+- 默认已经使用内部 `VFSShellCommand`。
+
+`repositories`
+- 直接注入整套 `VFSRepositories` 实例。
+- 一旦传入，就不会再按 `runtime_profile` 自动构建 `pgsql` 或 `memory` repositories。
+- 适合完全自定义持久化层，例如自定义 `PostgresVFSRepositories`、`OssVFSRepositories` 或测试替身。
+
+`workspace_state_store`
+- 直接注入 `WorkspaceStateStore` 实例。
+- 一旦传入，就不会再按 `runtime_profile` 自动选择 `LocalMemoryStateStore` 或 `RedisWorkspaceStateStore`。
+- 适合完全自定义运行态状态层，例如自定义 Redis store、对象存储 store 或测试替身。
+
+推荐原则：
+
+- 普通接入：只传 `settings + runtime_profile`
+- 高级自定义：优先传 `repositories` / `workspace_state_store`
+- 除非确实需要兼容旧表结构，否则不建议再单独传一组 ORM 模型类
+
+## 3. 接入前提
+
+你的业务侧需要准备：
+
+1. 一个 workspace 业务模型，例如 `AgentWorkspace`
+2. 一组 VFS ORM 模型
+3. 一个可选的 `load_project_state_payload(...)` 回调
+
+最小要求如下：
+
+```python
+from sqlalchemy.orm import Session
+
+
+def load_project_state_payload(*args, **kwargs) -> dict:
+    return {}
+```
+
+正式接入时，高层 profile builder 默认直接使用项目中的内部 VFS 模型定义，例如：
+
+- [sqlalchemy_models.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/sqlalchemy_models.py)
+
+## 4. 基础接入步骤
+
+### 4.1 配置 profile
+
+最简写法：
+
+```python
+from iruka_vfs import build_profile_dependencies, configure_vfs_dependencies
+
+
+dependencies = build_profile_dependencies(
+    settings=settings,
+    runtime_profile="ephemeral-local",  # 或 "persistent" / "ephemeral-redis"
+)
+configure_vfs_dependencies(dependencies)
+```
+
+显式 persistent 写法：
+
+```python
+from iruka_vfs import build_profile_persistent_dependencies, configure_vfs_dependencies
+
+
+dependencies = build_profile_persistent_dependencies(settings=settings)
+configure_vfs_dependencies(dependencies)
+```
+
+如果你需要覆盖内部默认 node/session/command 模型，或覆盖状态加载回调，也可以继续传扩展参数：
+
+```python
+dependencies = build_profile_dependencies(
+    settings=settings,
+    runtime_profile="persistent",
+    load_project_state_payload=load_project_state_payload,
+)
+```
+
+### 4.2 创建 workspace 句柄
+
+```python
+from iruka_vfs import WritableFileSource, create_workspace
+
+
+workspace_handle = create_workspace(
+    workspace=workspace_row,
+    tenant_id=workspace_row.tenant_id,
+    runtime_key=workspace_row.runtime_key,
+    primary_file=WritableFileSource(
+        file_id=f"workspace:{workspace_row.id}:primary",
+        virtual_path="/workspace/files/demo.md",
+        read_text=lambda: host_file_text["value"],
+        write_text=lambda text: host_file_text.__setitem__("value", text),
+        metadata={"source_type": "business-primary-file"},
+    ),
+    workspace_files={
+        "README.md": "# Workspace\n\nDemo workspace.\n",
+    },
+    context_files={
+        "context/project.md": "# Project Context\n\nLoaded from host app.\n",
+    },
+    skill_files={
+        "skills/index.md": "# Skills\n\n- none\n",
+    },
+)
+```
+
+### 4.3 初始化 workspace
+
+```python
+with SessionLocal() as db:
+    snapshot = workspace_handle.ensure(db)
+    print(snapshot.get("tree") or "")
+```
+
+### 4.4 进入 agent 模式并执行命令
+
+```python
+with SessionLocal() as db:
+    workspace_handle.enter_agent_mode(db)
+
+    result = workspace_handle.bash(
+        db,
+        "cd /workspace/files && pwd && cat demo.md",
+    )
+    print(result["stdout"])
+```
+
+### 4.5 刷新到后端
+
+```python
+ok = workspace_handle.flush()
+print("flush ok:", ok)
+```
+
+## 5. 三种模式示例
+
+### 5.1 persistent
+
+适合正式环境。运行态状态在 Redis，VFS 数据通过 `pgsql` repository 持久化。
+
+```python
+dependencies = build_profile_dependencies(
+    settings=settings,
+    runtime_profile="persistent",
+)
+configure_vfs_dependencies(dependencies)
+```
+
+特点：
+
+- 默认正式模式
+- 支持 flush/checkpoint 后恢复
+- 适合多实例和长期数据保留
+
+### 5.2 ephemeral-local
+
+适合 demo、单机测试、本地开发。运行态和 repository 都只在当前进程内存中。
+
+```python
+dependencies = build_profile_dependencies(
+    settings=settings,
+    runtime_profile="ephemeral-local",
+)
+configure_vfs_dependencies(dependencies)
+```
+
+特点：
+
+- 不依赖 PostgreSQL
+- 不依赖外部 Redis
+- 进程退出后数据丢失
+- 最适合前期接入 demo
+
+### 5.3 ephemeral-redis
+
+适合不想落数据库，但希望多个 worker 共享运行态的场景。
+
+```python
+dependencies = build_profile_dependencies(
+    settings=settings,
+    runtime_profile="ephemeral-redis",
+)
+configure_vfs_dependencies(dependencies)
+```
+
+特点：
+
+- 运行态在 Redis
+- repository 仍为 memory
+- 不做数据库持久化
+- 适合共享会话型 demo
+
+## 6. 完整接入示例
+
+下面是一段可直接参考的最小接入代码：
+
+```python
+from datetime import datetime
+
+from sqlalchemy import JSON, DateTime, Integer, String, Text, create_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+
+from iruka_vfs import (
+    WritableFileSource,
+    build_profile_dependencies,
+    configure_vfs_dependencies,
+    create_workspace,
+)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class AgentWorkspace(Base):
+    __tablename__ = "vfs_workspaces"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, default="demo")
+    runtime_key: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    project_id: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="idle")
+    current_objective: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    focus_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Settings:
+    default_tenant_id = "demo"
+    redis_key_namespace = "iruka-vfs-demo"
+    redis_url = "memory://"
+    database_url = "sqlite+pysqlite:///:memory:"
+
+
+def load_project_state_payload(*args, **kwargs) -> dict:
+    return {}
+
+
+dependencies = build_profile_dependencies(
+    settings=Settings(),
+    runtime_profile="ephemeral-local",
+)
+configure_vfs_dependencies(dependencies)
+
+engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+Base.metadata.create_all(bind=engine)
+SessionLocal = sessionmaker(bind=engine, class_=Session, autoflush=False, autocommit=False)
+
+host_file_text = {"value": "hello\n"}
+
+with SessionLocal() as db:
+    workspace_row = AgentWorkspace(
+        tenant_id="demo",
+        runtime_key="workspace:1",
+        project_id=1,
+    )
+    db.add(workspace_row)
+    db.commit()
+    db.refresh(workspace_row)
+
+    workspace = create_workspace(
+        workspace=workspace_row,
+        tenant_id=workspace_row.tenant_id,
+        runtime_key=workspace_row.runtime_key,
+        primary_file=WritableFileSource(
+            file_id="demo-file:1",
+            virtual_path="/workspace/files/demo.md",
+            read_text=lambda: host_file_text["value"],
+            write_text=lambda text: host_file_text.__setitem__("value", text),
+            metadata={"source_type": "demo"},
+        ),
+    )
+
+    workspace.ensure(db)
+    workspace.enter_agent_mode(db)
+    workspace.bash(
+        db,
+        "edit /workspace/files/demo.md --find hello --replace hello-world",
+    )
+    workspace.flush()
+
+print(host_file_text["value"])
+```
+
+## 7. 常用 API
+
+`VirtualWorkspace` 常用方法见 [workspace_handle.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/sdk/workspace_handle.py)：
+
+- `ensure(db)`
+  初始化或加载 workspace mirror
+- `enter_agent_mode(db)`
+  切到 agent 写模式
+- `enter_host_mode(db)`
+  切回 host 模式
+- `bash(db, raw_cmd)`
+  执行虚拟 bash 命令
+- `read_file(db, path)`
+  读取文件内容
+- `write_file(db, path, content)`
+  直接写文件
+- `read_directory(db, path, recursive=True)`
+  读取目录
+- `flush()`
+  把当前 dirty 状态 flush 到后端
+
+## 8. 命令示例
+
+```python
+workspace.bash(db, "ls /workspace/files")
+workspace.bash(db, "cat /workspace/files/demo.md")
+workspace.bash(db, "mkdir -p /workspace/files/docs")
+workspace.bash(db, "touch /workspace/files/docs/notes.md")
+workspace.bash(
+    db,
+    "edit /workspace/files/demo.md --find hello --replace hello-world",
+)
+workspace.bash(
+    db,
+    "patch --path /workspace/files/demo.md --find hello-world --replace final-text",
+)
+```
+
+## 9. 模式选择建议
+
+- 需要正式持久化、可恢复、可长期保留数据：`persistent`
+- 只想快速接 demo，不想配数据库和 Redis：`ephemeral-local`
+- 想要共享运行态，但仍不想落 PostgreSQL：`ephemeral-redis`
+
+## 10. 相关文件
+
+- [__init__.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/__init__.py)
+- [profile_setup.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/profile_setup.py)
+- [workspace_handle.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/sdk/workspace_handle.py)
+- [workspace_state_store.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/workspace_state_store.py)
+- [pgsql_repositories.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/pgsql_repositories.py)
+- [in_memory_repositories.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/in_memory_repositories.py)
+- [standalone_sqlite_demo.py](/Users/tc/ai/Iruka-Virtual-File-System/examples/standalone_sqlite_demo.py)

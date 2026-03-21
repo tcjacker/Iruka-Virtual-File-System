@@ -18,6 +18,7 @@ from iruka_vfs.constants import (
     VFS_ROOT,
 )
 from iruka_vfs.dependencies import get_vfs_dependencies
+from iruka_vfs.dependency_resolution import resolve_vfs_repositories
 from iruka_vfs.pathing import list_children, node_path, path_is_under, resolve_parent_for_create, resolve_path
 from iruka_vfs.runtime import collect_files, must_get_node, truncate_for_log
 from iruka_vfs.runtime.filesystem import get_or_create_session
@@ -27,46 +28,54 @@ from iruka_vfs.service_ops.bootstrap import ensure_virtual_workspace, normalize_
 from iruka_vfs.service_ops.state import (
     enqueue_virtual_command_log,
     ensure_async_log_worker,
-    get_redis_client,
+    get_workspace_state_store,
     next_ephemeral_command_id,
 )
-from iruka_vfs.sqlalchemy_repositories import build_sqlalchemy_repositories
 from iruka_vfs.workspace_mirror import (
+    active_workspace_scope,
     assert_workspace_tenant,
     effective_tenant_key,
     enqueue_workspace_checkpoint,
     ensure_workspace_checkpoint_worker,
     flush_workspace_mirror,
     get_workspace_mirror,
-    load_workspace_mirror_by_base_key,
     mirror_has_dirty_state,
     set_active_workspace_mirror,
     set_active_workspace_scope,
     set_active_workspace_tenant,
     set_workspace_mirror,
-    workspace_due_key,
-    workspace_enqueued_key,
     workspace_lock,
     workspace_scope_for_db,
 )
 from iruka_vfs.runtime.logging_support import prepare_artifacts_for_log as prepare_log_artifacts
 
 _dependencies = get_vfs_dependencies()
-_repositories = _dependencies.repositories or build_sqlalchemy_repositories(_dependencies)
+_repositories = resolve_vfs_repositories()
 VirtualShellSession = _dependencies.VirtualShellSession
 AgentWorkspace = _dependencies.AgentWorkspace
 
 
 def flush_workspace(workspace_id: int, tenant_id: str | None = None) -> bool:
     tenant_key = effective_tenant_key(tenant_id)
-    mirror = get_workspace_mirror(workspace_id, tenant_key=tenant_key)
+    store = get_workspace_state_store()
+    scope_key = active_workspace_scope()
+    mirror = None
+    if scope_key:
+        mirror = store.get_workspace_mirror(
+            workspace_id,
+            tenant_key=tenant_key,
+            scope_key=scope_key,
+        )
+    if mirror is None:
+        mirror = store.get_workspace_mirror(workspace_id, tenant_key=tenant_key)
     if not mirror:
         return True
-    lock, base_key = workspace_lock(mirror)
+    workspace_ref = store.workspace_ref(mirror=mirror)
+    lock = store.workspace_lock(workspace_ref=workspace_ref)
     if not lock.acquire(blocking=True):
         return False
     try:
-        current = get_workspace_mirror(workspace_id, tenant_key=tenant_key)
+        current = store.load_workspace_mirror(workspace_ref)
         if not current:
             return True
     finally:
@@ -74,13 +83,11 @@ def flush_workspace(workspace_id: int, tenant_id: str | None = None) -> bool:
             lock.release()
         except Exception:
             pass
-    ok = flush_workspace_mirror(None, base_key=base_key)
-    client = get_redis_client()
-    client.srem(workspace_enqueued_key(), base_key)
-    client.delete(workspace_due_key(base_key))
-    current = load_workspace_mirror_by_base_key(client, base_key)
+    ok = flush_workspace_mirror(None, workspace_ref=workspace_ref)
+    store.clear_checkpoint_schedule(workspace_ref)
+    current = store.load_workspace_mirror(workspace_ref)
     if current and mirror_has_dirty_state(current):
-        enqueue_workspace_checkpoint(base_key)
+        enqueue_workspace_checkpoint(workspace_ref)
     return ok
 
 
@@ -108,7 +115,7 @@ def run_virtual_bash(
         initial_mirror = get_workspace_mirror(workspace.id, tenant_key=tenant_key)
         if not initial_mirror:
             raise ValueError(f"workspace mirror missing for workspace {workspace.id}")
-        lock, _ = workspace_lock(initial_mirror)
+        lock = workspace_lock(initial_mirror)
         if not lock.acquire(blocking=True):
             raise TimeoutError(f"failed to acquire workspace lock: {workspace.id}")
         try:

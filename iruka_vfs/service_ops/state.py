@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import queue
 import threading
+from collections import deque
+from types import SimpleNamespace
 from typing import Any
 
 import redis
@@ -9,12 +11,15 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from iruka_vfs.constants import ASYNC_COMMAND_LOGGING
+from iruka_vfs.dependency_resolution import resolve_workspace_state_backend
 from iruka_vfs.dependencies import get_vfs_dependencies
 from iruka_vfs.runtime_seed import RuntimeSeed
 from iruka_vfs import runtime_state
-
-_dependencies = get_vfs_dependencies()
-settings = _dependencies.settings
+from iruka_vfs.workspace_state_store import (
+    LocalMemoryStateStore,
+    RedisWorkspaceStateStore,
+    _LocalCheckpointState,
+)
 
 _workspace_cache_lock = threading.Lock()
 _workspace_cache: dict[tuple[str, int], dict[str, Any]] = {}
@@ -119,9 +124,55 @@ def next_ephemeral_patch_id() -> int:
 
 def get_redis_client() -> redis.Redis:
     global _redis_client
+    settings = get_vfs_dependencies().settings
     if _redis_client is not None:
         return _redis_client
+    try:
+        from iruka_vfs import service as vfs_service
+
+        override_client = getattr(vfs_service, "_redis_client", None)
+        if override_client is not None:
+            _redis_client = override_client
+            return _redis_client
+    except Exception:
+        pass
     with _redis_client_lock:
         if _redis_client is None:
             _redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
         return _redis_client
+
+
+def get_workspace_state_store():
+    if runtime_state.workspace_state_store is not None:
+        return runtime_state.workspace_state_store
+    dependencies = get_vfs_dependencies()
+    store = dependencies.workspace_state_store
+    if store is None:
+        backend = resolve_workspace_state_backend(dependencies)
+        if backend == "local-memory":
+            store = build_local_memory_workspace_state_store()
+        else:
+            store = RedisWorkspaceStateStore(redis_client_factory=get_redis_client)
+    runtime_state.workspace_state_store = store
+    return store
+
+
+def build_local_memory_workspace_state_store():
+    checkpoint_state = _LocalCheckpointState(
+        queue=deque(runtime_state.local_checkpoint_queue),
+        enqueued=runtime_state.local_checkpoint_enqueued,
+        dirty=runtime_state.local_dirty_workspaces,
+        due_at=runtime_state.local_checkpoint_due_at,
+        errors=runtime_state.local_workspace_errors,
+        dead_letters=runtime_state.local_dead_letter_workspaces,
+        dead_letter_payloads=runtime_state.local_dead_letter_payloads,
+        retry_counts=runtime_state.local_retry_counts,
+        condition=runtime_state.local_checkpoint_condition,
+    )
+    runtime_state.local_checkpoint_queue = checkpoint_state.queue
+    return LocalMemoryStateStore(state=SimpleNamespace(
+        local_workspace_mirrors=runtime_state.local_workspace_mirrors,
+        local_workspace_indexes=runtime_state.local_workspace_indexes,
+        local_workspace_locks=runtime_state.local_workspace_locks,
+        local_checkpoint_state=checkpoint_state,
+    ))

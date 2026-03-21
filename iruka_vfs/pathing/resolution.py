@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from iruka_vfs.dependency_resolution import resolve_vfs_repositories
 from iruka_vfs.dependencies import get_vfs_dependencies
 
 _dependencies = get_vfs_dependencies()
@@ -87,31 +88,53 @@ def resolve_path(db: Session, workspace_id: int, cwd_node_id: int, path: str) ->
         current = service._must_get_node(db, cwd_node_id)
         parts = [item for item in path.split("/") if item]
 
+    repositories = resolve_vfs_repositories()
+
     for part in parts:
         if part == ".":
             continue
         if part == "..":
             if current.parent_id is None:
                 continue
-            parent = db.scalars(
-                select(VirtualFileNode).where(
-                    VirtualFileNode.tenant_id == tenant_key,
-                    VirtualFileNode.id == current.parent_id,
-                )
-            ).first()
+            if db is None:
+                parent = repositories.node.get_node(db, int(current.parent_id), tenant_key)
+            else:
+                parent = db.scalars(
+                    select(VirtualFileNode).where(
+                        VirtualFileNode.tenant_id == tenant_key,
+                        VirtualFileNode.id == current.parent_id,
+                    )
+                ).first()
             if not parent:
                 return None
             current = parent
             continue
 
-        child = db.scalars(
-            select(VirtualFileNode).where(
-                VirtualFileNode.tenant_id == tenant_key,
-                VirtualFileNode.workspace_id == workspace_id,
-                VirtualFileNode.parent_id == current.id,
-                VirtualFileNode.name == part,
+        if db is None:
+            child = repositories.node.get_child(
+                db,
+                tenant_key=tenant_key,
+                workspace_id=workspace_id,
+                parent_id=int(current.id),
+                name=part,
+                node_type="dir",
+            ) or repositories.node.get_child(
+                db,
+                tenant_key=tenant_key,
+                workspace_id=workspace_id,
+                parent_id=int(current.id),
+                name=part,
+                node_type="file",
             )
-        ).first()
+        else:
+            child = db.scalars(
+                select(VirtualFileNode).where(
+                    VirtualFileNode.tenant_id == tenant_key,
+                    VirtualFileNode.workspace_id == workspace_id,
+                    VirtualFileNode.parent_id == current.id,
+                    VirtualFileNode.name == part,
+                )
+            ).first()
         if not child:
             return None
         current = child
@@ -127,6 +150,12 @@ def list_children(db: Session, workspace_id: int, parent_id: int) -> list[Virtua
     if mirror:
         with mirror.lock:
             return [mirror.nodes[child_id] for child_id in mirror.children_by_parent.get(parent_id, [])]
+    if db is None:
+        return [
+            node
+            for node in resolve_vfs_repositories().node.list_workspace_nodes(db, workspace_id, tenant_key)
+            if int(getattr(node, "parent_id", -1) or -1) == int(parent_id)
+        ]
     return db.scalars(
         select(VirtualFileNode)
         .where(
@@ -151,13 +180,17 @@ def node_path(db: Session, node: VirtualFileNode) -> str:
         return "/"
     names = [node.name]
     parent_id = node.parent_id
+    repositories = resolve_vfs_repositories()
     while parent_id is not None:
-        parent = db.scalars(
-            select(VirtualFileNode).where(
-                VirtualFileNode.tenant_id == tenant_key,
-                VirtualFileNode.id == parent_id,
-            )
-        ).first()
+        if db is None:
+            parent = repositories.node.get_node(db, int(parent_id), tenant_key)
+        else:
+            parent = db.scalars(
+                select(VirtualFileNode).where(
+                    VirtualFileNode.tenant_id == tenant_key,
+                    VirtualFileNode.id == parent_id,
+                )
+            ).first()
         if not parent:
             break
         if parent.parent_id is None:

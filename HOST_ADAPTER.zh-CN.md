@@ -13,6 +13,19 @@
 
 宿主适配层的职责，是把宿主业务对象翻译成 VFS 能理解的 workspace 输入。
 
+## 当前包结构
+
+这轮重构后，宿主接入可以按下面几层理解：
+
+- 对外包入口：`iruka_vfs/__init__.py`、`iruka_vfs/workspace.py`
+- workspace handle 和工厂：`iruka_vfs/sdk/`
+- 编排入口：`iruka_vfs/service_ops/`
+- 执行细节：`iruka_vfs/runtime/`
+- workspace 状态内部实现：`iruka_vfs/mirror/`、`iruka_vfs/cache/`、`iruka_vfs/pathing/`、`iruka_vfs/sqlalchemy_repo/`
+
+像 `iruka_vfs/service.py`、`iruka_vfs/workspace_mirror.py` 这样的旧模块仍然存在，
+但主要作用是兼容历史 import 路径，不建议继续作为新实现的归宿。
+
 ## 接入职责
 
 宿主适配层应当：
@@ -61,6 +74,32 @@ workspace.flush()
 ```
 
 `RuntimeSeed` 仍然存在于内部实现中，但对宿主侧推荐直接使用 workspace facade。
+
+## Agent 调用链
+
+宿主侧正常的执行路径是：
+
+```text
+create_workspace(...)
+  -> sdk.workspace_factory.create_workspace_handle(...)
+  -> VirtualWorkspace
+
+workspace.ensure(db)
+  -> service.ensure_virtual_workspace(...)
+  -> service_ops.bootstrap.ensure_virtual_workspace(...)
+
+workspace.bash(db, "...")
+  -> service.run_virtual_bash(...)
+  -> service_ops.file_api.run_virtual_bash(...)
+  -> runtime.executor.run_command_chain(...)
+
+workspace.flush()
+  -> service.flush_workspace(...)
+  -> service_ops.file_api.flush_workspace(...)
+  -> mirror.checkpoint.flush_workspace_mirror(...)
+```
+
+宿主适配层应尽量只依赖 workspace 对外方法，除非你确实需要介入更底层的实现细节。
 
 ## 生命周期约束
 

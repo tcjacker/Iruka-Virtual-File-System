@@ -83,10 +83,6 @@ class DemoShellCommand(Base):
     ended_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
-class DemoChapter:
-    pass
-
-
 @dataclass
 class DemoSettings:
     default_tenant_id: str = "demo"
@@ -165,7 +161,6 @@ def main() -> None:
         VFSDependencies(
             settings=DemoSettings(),
             AgentWorkspace=DemoWorkspace,
-            Chapter=DemoChapter,
             VirtualFileNode=DemoFileNode,
             VirtualShellCommand=DemoShellCommand,
             VirtualShellSession=DemoShellSession,
@@ -181,7 +176,7 @@ def main() -> None:
     Base.metadata.create_all(bind=engine)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
 
-    chapter_text = {"value": "First draft line.\nSecond line.\n"}
+    primary_file_text = {"value": "First draft line.\nSecond line.\n"}
 
     with SessionLocal() as db:
         workspace_row = DemoWorkspace(
@@ -199,10 +194,10 @@ def main() -> None:
             tenant_id="demo",
             runtime_key=f"workspace:{workspace_row.id}",
             primary_file=WritableFileSource(
-                file_id="chapter:1",
-                virtual_path="/workspace/chapters/chapter_1.md",
-                read_text=lambda: chapter_text["value"],
-                write_text=lambda text: chapter_text.__setitem__("value", text),
+                file_id="demo-file:1",
+                virtual_path="/workspace/files/demo_file.md",
+                read_text=lambda: primary_file_text["value"],
+                write_text=lambda text: primary_file_text.__setitem__("value", text),
                 metadata={"source_type": "standalone-demo"},
             ),
             context_files={"outline.md": "# Outline\n\nA small standalone demo.\n"},
@@ -213,18 +208,18 @@ def main() -> None:
         print("tree:\n", snapshot.get("tree") or "")
         workspace.enter_agent_mode(db)
 
-        read_result = workspace.bash(db, "cat /workspace/chapters/chapter_1.md")
+        read_result = workspace.bash(db, "cat /workspace/files/demo_file.md")
         print("cat stdout:\n", read_result["stdout"])
 
         edit_result = workspace.bash(
             db,
-            "edit /workspace/chapters/chapter_1.md --find First --replace Rewritten",
+            "edit /workspace/files/demo_file.md --find First --replace Rewritten",
         )
         print("edit exit_code:", edit_result["exit_code"])
         print("edit stdout:\n", edit_result["stdout"])
 
         workspace.flush()
-        print("host text after flush:\n", chapter_text["value"])
+        print("host text after flush:\n", primary_file_text["value"])
 
 
 if __name__ == "__main__":

@@ -13,6 +13,19 @@ The host service owns:
 
 The host adapter translates host concepts into VFS concepts.
 
+## Current Package Shape
+
+After the refactor, a host integration should think in these layers:
+
+- public package entry: `iruka_vfs/__init__.py`, `iruka_vfs/workspace.py`
+- workspace handle and factory: `iruka_vfs/sdk/`
+- orchestration entry points: `iruka_vfs/service_ops/`
+- execution internals: `iruka_vfs/runtime/`
+- workspace-state internals: `iruka_vfs/mirror/`, `iruka_vfs/cache/`, `iruka_vfs/pathing/`, `iruka_vfs/sqlalchemy_repo/`
+
+Compatibility modules such as `iruka_vfs/service.py` and `iruka_vfs/workspace_mirror.py`
+still exist, but they should be treated as facades that preserve older imports.
+
 ## Responsibilities
 
 The host adapter should:
@@ -61,6 +74,33 @@ workspace.flush()
 ```
 
 `RuntimeSeed` still exists internally, but the preferred host-facing API is the workspace object.
+
+## Agent Call Flow
+
+The normal host-driven execution path is:
+
+```text
+create_workspace(...)
+  -> sdk.workspace_factory.create_workspace_handle(...)
+  -> VirtualWorkspace
+
+workspace.ensure(db)
+  -> service.ensure_virtual_workspace(...)
+  -> service_ops.bootstrap.ensure_virtual_workspace(...)
+
+workspace.bash(db, "...")
+  -> service.run_virtual_bash(...)
+  -> service_ops.file_api.run_virtual_bash(...)
+  -> runtime.executor.run_command_chain(...)
+
+workspace.flush()
+  -> service.flush_workspace(...)
+  -> service_ops.file_api.flush_workspace(...)
+  -> mirror.checkpoint.flush_workspace_mirror(...)
+```
+
+The host adapter should only depend on the public workspace methods unless there is a
+strong reason to reach into lower-level modules.
 
 ## Lifecycle Rules
 

@@ -81,6 +81,25 @@
         margin-bottom: 18px;
       }
 
+      .mode-picker {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .mode-picker select {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #fffdf8;
+        color: var(--ink);
+        padding: 7px 12px;
+        font: inherit;
+      }
+
       .workspace-pill {
         padding: 6px 10px;
         border-radius: 999px;
@@ -326,7 +345,16 @@
       <div class="workspace-bar">
         <span class="workspace-pill" id="workspace-id">workspace: -</span>
         <span class="workspace-pill" id="runtime-key">runtime: -</span>
-        <span class="workspace-pill" id="chapter-file">chapter: -</span>
+        <span class="workspace-pill" id="runtime-profile">profile: -</span>
+        <span class="workspace-pill" id="primary-file">primary file: -</span>
+        <label class="mode-picker">
+          <span>Mode</span>
+          <select id="runtime-profile-select">
+            <option value="persistent">persistent</option>
+            <option value="ephemeral-local">ephemeral-local</option>
+            <option value="ephemeral-redis">ephemeral-redis</option>
+          </select>
+        </label>
         <span class="status" id="status-text">Loading state…</span>
       </div>
 
@@ -337,7 +365,7 @@
               <h2 class="panel-title">Command Deck</h2>
             </div>
             <div class="panel-body command-box">
-              <textarea id="command-input">cat /workspace/chapters/chapter_1.md</textarea>
+              <textarea id="command-input">cat /workspace/files/demo_file.md</textarea>
               <div class="actions">
                 <button class="primary" id="run-button">Run Command</button>
                 <button class="secondary" id="flush-button">Flush Workspace</button>
@@ -382,7 +410,7 @@
 
           <article class="panel">
             <div class="panel-head">
-              <h2 class="panel-title">Host Chapter Text</h2>
+              <h2 class="panel-title">Host File Text</h2>
             </div>
             <div class="panel-body host">
               <pre id="host-box"></pre>
@@ -391,6 +419,13 @@
         </div>
 
         <div class="stack">
+          <article class="panel">
+            <div class="panel-head">
+              <h2 class="panel-title">Backend Wiring</h2>
+            </div>
+            <div class="panel-body kv" id="backend-grid"></div>
+          </article>
+
           <article class="panel">
             <div class="panel-head">
               <h2 class="panel-title">Runtime Metrics</h2>
@@ -412,11 +447,11 @@
 
     <script>
       const samples = [
-        "cat /workspace/chapters/chapter_1.md",
-        "edit /workspace/chapters/chapter_1.md --find MARKER_000 --replace VERIFIED_000",
+        "cat /workspace/files/demo_file.md",
+        "edit /workspace/files/demo_file.md --find MARKER_000 --replace VERIFIED_000",
         "echo local-note > /workspace/notes/check.txt",
         "rg VERIFIED /workspace",
-        "wc /workspace/chapters/chapter_1.md",
+        "wc /workspace/files/demo_file.md",
         "cat /workspace/notes/check.txt"
       ];
 
@@ -424,7 +459,9 @@
         status: document.getElementById("status-text"),
         workspaceId: document.getElementById("workspace-id"),
         runtimeKey: document.getElementById("runtime-key"),
-        chapterFile: document.getElementById("chapter-file"),
+        runtimeProfile: document.getElementById("runtime-profile"),
+        runtimeProfileSelect: document.getElementById("runtime-profile-select"),
+        primaryFile: document.getElementById("primary-file"),
         input: document.getElementById("command-input"),
         run: document.getElementById("run-button"),
         flush: document.getElementById("flush-button"),
@@ -438,6 +475,7 @@
         stderr: document.getElementById("stderr-box"),
         tree: document.getElementById("tree-box"),
         host: document.getElementById("host-box"),
+        backend: document.getElementById("backend-grid"),
         metrics: document.getElementById("metrics-grid"),
         history: document.getElementById("history-list")
       };
@@ -449,6 +487,7 @@
         els.run.disabled = nextBusy;
         els.flush.disabled = nextBusy;
         els.reset.disabled = nextBusy;
+        els.runtimeProfileSelect.disabled = nextBusy;
         els.status.textContent = message;
       }
 
@@ -476,6 +515,28 @@
         });
       }
 
+      function renderBackend(payload) {
+        const rows = {
+          workspace_state_backend: payload.workspace_state_backend || "-",
+          repository_backend: payload.repository_backend || "-",
+          workspace_state_store_class: payload.workspace_state_store_class || "-",
+          workspace_repository_class: payload.workspace_repository_class || "-",
+          session_repository_class: payload.session_repository_class || "-",
+          node_repository_class: payload.node_repository_class || "-",
+          command_log_repository_class: payload.command_log_repository_class || "-"
+        };
+        els.backend.innerHTML = "";
+        Object.entries(rows).forEach(([key, value]) => {
+          const card = document.createElement("div");
+          card.className = "metric";
+          card.innerHTML = `
+            <div class="metric-label">${key.replaceAll("_", " ")}</div>
+            <div class="metric-value mono">${value}</div>
+          `;
+          els.backend.appendChild(card);
+        });
+      }
+
       function renderHistory(items) {
         els.history.innerHTML = "";
         items.forEach((item) => {
@@ -495,9 +556,23 @@
       function renderState(payload) {
         els.workspaceId.textContent = `workspace: ${payload.workspace_id}`;
         els.runtimeKey.textContent = `runtime: ${payload.runtime_key}`;
-        els.chapterFile.textContent = `chapter: ${payload.chapter_file || "-"}`;
+        els.runtimeProfile.textContent = `profile: ${payload.runtime_profile || "-"}`;
+        els.primaryFile.textContent = `primary file: ${payload.primary_file || "-"}`;
+        if (Array.isArray(payload.available_runtime_profiles)) {
+          els.runtimeProfileSelect.innerHTML = "";
+          payload.available_runtime_profiles.forEach((profile) => {
+            const option = document.createElement("option");
+            option.value = profile;
+            option.textContent = profile;
+            els.runtimeProfileSelect.appendChild(option);
+          });
+        }
+        if (payload.runtime_profile) {
+          els.runtimeProfileSelect.value = payload.runtime_profile;
+        }
         els.tree.textContent = payload.tree || "(empty)";
         els.host.textContent = payload.host_text || "";
+        renderBackend(payload);
         renderMetrics(payload.cache_metrics || {}, payload.checkpoint_metrics || {});
         renderHistory(payload.recent_commands || []);
       }
@@ -581,7 +656,9 @@
       async function resetWorkspace() {
         setBusy(true, "Resetting demo workspace…");
         try {
-          const payload = await callApi("/api/reset", {});
+          const payload = await callApi("/api/reset", {
+            runtime_profile: els.runtimeProfileSelect.value
+          });
           renderState(payload);
           renderResult(null);
           els.input.value = samples[0];
@@ -605,6 +682,11 @@
       els.run.addEventListener("click", runCommand);
       els.flush.addEventListener("click", flushWorkspace);
       els.reset.addEventListener("click", resetWorkspace);
+      els.runtimeProfileSelect.addEventListener("change", () => {
+        if (!busy) {
+          resetWorkspace();
+        }
+      });
       els.input.addEventListener("keydown", (event) => {
         if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !busy) {
           runCommand();

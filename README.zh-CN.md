@@ -30,6 +30,15 @@ iruka_vfs_repo/
 
 当前包分层和依赖方向见 [docs/architecture.md](/Users/tc/ai/Iruka-Virtual-File-System/docs/architecture.md)。
 
+这轮重构后，项目结构可以理解为：
+
+- 对外入口：`iruka_vfs/__init__.py`、`iruka_vfs/workspace.py`
+- workspace facade 和工厂：`iruka_vfs/sdk/`
+- 编排层：`iruka_vfs/service_ops/`
+- 执行层：`iruka_vfs/runtime/`
+- mirror / pathing / cache / repository 内部实现：`iruka_vfs/mirror/`、`iruka_vfs/pathing/`、`iruka_vfs/cache/`、`iruka_vfs/sqlalchemy_repo/`
+- 为兼容旧 import 保留的 facade：`service.py`、`command_runtime.py`、`memory_cache.py`、`paths.py`、`sqlalchemy_repositories.py`、`workspace_mirror.py`
+
 ## 对外 API
 
 推荐使用的入口：
@@ -52,6 +61,36 @@ iruka_vfs_repo/
 5. 在明确的持久化边界调用 `workspace.flush()`
 
 更详细的宿主接入说明见 [HOST_ADAPTER.zh-CN.md](/Users/tc/ai/Iruka-Virtual-File-System/HOST_ADAPTER.zh-CN.md)。
+
+## Agent 接入路径
+
+推荐的 Agent 接入方式是：
+
+1. 进程启动时调用 `configure_vfs_dependencies(...)`
+2. 为一个 agent / workspace 构造一个 `VirtualWorkspace`
+3. 在执行命令前调用 `workspace.ensure(db)`
+4. 调用 `workspace.enter_agent_mode(db)` 切到 agent 模式
+5. 用 `workspace.bash(db, "...")` 执行虚拟命令
+6. 宿主直读直写前切回 `workspace.enter_host_mode(db)`
+7. 在 turn 结束或明确持久化边界调用 `workspace.flush()`
+
+核心调用链如下：
+
+```text
+create_workspace(...)
+  -> sdk.workspace_factory.create_workspace_handle(...)
+  -> VirtualWorkspace
+
+VirtualWorkspace.bash(...)
+  -> service.run_virtual_bash(...)
+  -> service_ops.file_api.run_virtual_bash(...)
+  -> runtime.executor.run_command_chain(...)
+
+VirtualWorkspace.flush()
+  -> service.flush_workspace(...)
+  -> service_ops.file_api.flush_workspace(...)
+  -> mirror.checkpoint.flush_workspace_mirror(...)
+```
 
 ## 理想 SDK 形态
 

@@ -17,7 +17,7 @@
 3. 每次命令都直读直写数据库，延迟高，而且难做缓存。
 4. 写入失败、并发冲突、回放和审计都不好处理。
 
-`iruka_vfs` 的设计目标，就是把这些能力沉淀成一个独立的运行时层。它不关心宿主业务里的 `Conversation`、`Project`、`Chapter` 到底长什么样，只关心一件事：给 Agent 一个可控、可持久化、可缓存、可显式 flush 的虚拟工作区。
+`iruka_vfs` 的设计目标，就是把这些能力沉淀成一个独立的运行时层。它不关心宿主业务里的 `Conversation`、`Project` 之类对象到底长什么样，只关心一件事：给 Agent 一个可控、可持久化、可缓存、可显式 flush 的虚拟工作区。
 
 从代码结构上看，这个项目把能力边界收得很窄：
 
@@ -72,17 +72,12 @@ Host Models / External Files
 第一步，宿主系统配置依赖：
 
 ```python
-from iruka_vfs.dependencies import VFSDependencies, configure_vfs_dependencies
+from iruka_vfs import build_profile_dependencies, configure_vfs_dependencies
 
 configure_vfs_dependencies(
-    VFSDependencies(
+    build_profile_dependencies(
         settings=...,
-        AgentWorkspace=...,
-        Chapter=...,
-        VirtualFileNode=...,
-        VirtualShellCommand=...,
-        VirtualShellSession=...,
-        load_project_state_payload=...,
+        runtime_profile="persistent",
     )
 )
 ```

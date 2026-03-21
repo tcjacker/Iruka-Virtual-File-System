@@ -36,6 +36,7 @@ class BenchmarkWorkspaceModel(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     conversation_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     project_id: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    chapter_id: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="idle")
     current_objective: Mapped[str] = mapped_column(Text, nullable=False, default="")
     focus_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)

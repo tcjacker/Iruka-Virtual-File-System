@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from iruka_vfs.constants import VFS_ACCESS_MODE_AGENT, VFS_ACCESS_MODE_HOST
+from iruka_vfs.dependency_resolution import resolve_vfs_repositories
 from iruka_vfs.runtime_seed import RuntimeSeed
 from iruka_vfs.service_ops.bootstrap import ensure_virtual_workspace, workspace_access_mode_from_metadata
 from iruka_vfs.workspace_mirror import (
@@ -13,10 +14,9 @@ from iruka_vfs.workspace_mirror import (
     workspace_scope_for_db,
 )
 from iruka_vfs.dependencies import get_vfs_dependencies
-from iruka_vfs.sqlalchemy_repositories import build_sqlalchemy_repositories
 
 _dependencies = get_vfs_dependencies()
-_repositories = _dependencies.repositories or build_sqlalchemy_repositories(_dependencies)
+_repositories = resolve_vfs_repositories()
 AgentWorkspace = _dependencies.AgentWorkspace
 
 
@@ -88,7 +88,7 @@ def set_workspace_access_mode(
     mirror = get_workspace_mirror(int(workspace.id), tenant_key=tenant_key, scope_key=scope_key)
     if not mirror:
         raise ValueError(f"workspace mirror missing for workspace {workspace.id}")
-    lock, _ = workspace_lock(mirror)
+    lock = workspace_lock(mirror)
     if not lock.acquire(blocking=True):
         raise TimeoutError(f"failed to acquire workspace lock: {workspace.id}")
     try:

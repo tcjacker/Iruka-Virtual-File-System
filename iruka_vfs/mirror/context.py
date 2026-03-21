@@ -82,6 +82,9 @@ def effective_tenant_key(explicit_tenant_key: str | None = None) -> str:
 
 
 def workspace_scope_for_db(db: Session) -> str:
+    if db is None or not hasattr(db, "get_bind"):
+        base = str(getattr(settings, "database_url", "") or "in-memory-db")
+        return hashlib.sha1(base.encode("utf-8")).hexdigest()[:12]
     bind = db.get_bind()
     if bind is None:
         base = str(getattr(settings, "database_url", "") or "default-db")

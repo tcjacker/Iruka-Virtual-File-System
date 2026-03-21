@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import OrderedDict
+from collections import OrderedDict, deque
 import queue
 import threading
 from typing import Any
@@ -30,7 +30,22 @@ workspace_checkpoint_worker_started = False
 workspace_checkpoint_session_maker: sessionmaker | None = None
 redis_client_lock = threading.Lock()
 redis_client: redis.Redis | None = None
+workspace_state_store = None
+vfs_repositories = None
 active_workspace_context = threading.local()
+
+local_workspace_mirrors: dict[str, Any] = {}
+local_workspace_indexes: dict[tuple[str, int, str], str] = {}
+local_workspace_locks: dict[str, threading.Lock] = {}
+local_checkpoint_condition = threading.Condition()
+local_checkpoint_queue = deque()
+local_checkpoint_enqueued: set[str] = set()
+local_dirty_workspaces: set[str] = set()
+local_checkpoint_due_at: dict[str, float] = {}
+local_workspace_errors: dict[str, dict[str, object]] = {}
+local_dead_letter_workspaces: set[str] = set()
+local_dead_letter_payloads: dict[str, dict[str, object]] = {}
+local_retry_counts: dict[str, int] = {}
 
 mem_cache_lock = threading.Lock()
 mem_cache_entries: dict[int, Any] = {}

@@ -9,6 +9,7 @@ from iruka_vfs.constants import (
     VFS_NOTES_ROOT,
     VFS_ROOT,
 )
+from iruka_vfs.dependency_resolution import resolve_vfs_repositories
 from iruka_vfs.dependencies import get_vfs_dependencies
 from iruka_vfs.memory_cache import get_node_content, get_node_version
 from iruka_vfs.pathing import path_is_under, resolve_path
@@ -25,7 +26,6 @@ from iruka_vfs.service_ops.state import (
     register_runtime_seed,
     set_cached_workspace_state,
 )
-from iruka_vfs.sqlalchemy_repositories import build_sqlalchemy_repositories
 from iruka_vfs.tree_view import render_virtual_tree
 from iruka_vfs.workspace_mirror import (
     assert_workspace_tenant,
@@ -38,7 +38,7 @@ from iruka_vfs.workspace_mirror import (
 )
 
 _dependencies = get_vfs_dependencies()
-_repositories = _dependencies.repositories or build_sqlalchemy_repositories(_dependencies)
+_repositories = resolve_vfs_repositories()
 VFSDependenciesWorkspace = _dependencies.AgentWorkspace
 
 
@@ -107,7 +107,10 @@ def ensure_virtual_workspace(
 
         metadata = dict(workspace.metadata_json or {})
         metadata["tenant_id"] = tenant_key
-        metadata["virtual_chapter_file"] = primary_file_path or str(seed.metadata.get("virtual_chapter_file") or "")
+        metadata["virtual_primary_file"] = (
+            primary_file_path
+            or str(seed.metadata.get("virtual_primary_file") or seed.metadata.get("virtual_chapter_file") or "")
+        )
         metadata["virtual_writable_roots"] = [VFS_ROOT]
         metadata["virtual_readonly_roots"] = []
         metadata["virtual_notes_dir"] = VFS_NOTES_ROOT
@@ -131,7 +134,7 @@ def ensure_virtual_workspace(
         snapshot = {
             "workspace_id": workspace.id,
             "session_id": session.id,
-            "chapter_file": metadata["virtual_chapter_file"],
+            "primary_file": metadata["virtual_primary_file"],
         }
         set_cached_workspace_state(scope_key, workspace.id, snapshot)
         if include_tree:

@@ -29,6 +29,20 @@ class RuntimeHelpersTest(unittest.TestCase):
         self.assertEqual(after, "hello\niruka\n")
         self.assertEqual(conflicts, [])
 
+    def test_apply_unified_patch_returns_conflict_on_context_mismatch(self) -> None:
+        before = "hello\nworld\n"
+        diff = "@@ -1,2 +1,2 @@\n hello\n-wrong\n+iruka"
+        after, conflicts = apply_unified_patch(before, diff)
+        self.assertEqual(after, before)
+        self.assertEqual(conflicts[0]["reason"], "remove mismatch")
+
+    def test_apply_unified_patch_returns_conflict_on_invalid_header(self) -> None:
+        before = "hello\nworld\n"
+        diff = "@@ invalid @@\n hello\n-world\n+iruka"
+        after, conflicts = apply_unified_patch(before, diff)
+        self.assertEqual(after, before)
+        self.assertEqual(conflicts[0]["reason"], "invalid hunk header")
+
 
 if __name__ == "__main__":
     unittest.main()

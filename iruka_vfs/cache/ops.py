@@ -20,7 +20,7 @@ def cache_metric_inc(name: str, delta: int = 1) -> None:
 
 
 def snapshot_virtual_fs_cache_metrics() -> dict[str, int]:
-    from iruka_vfs import service
+    from iruka_vfs.service_ops.state import get_workspace_state_store
 
     with state.mem_cache_lock:
         payload = dict(state.mem_cache_metrics)
@@ -28,8 +28,7 @@ def snapshot_virtual_fs_cache_metrics() -> dict[str, int]:
         payload["dirty_entries"] = len(state.mem_cache_dirty_ids)
         payload["cache_bytes"] = state.mem_cache_current_bytes
     try:
-        client = service._get_redis_client()
-        payload["workspace_dirty_nodes"] = int(client.scard(service._workspace_dirty_set_key()) or 0)
+        payload["workspace_dirty_nodes"] = int(get_workspace_state_store().get_dirty_workspace_count() or 0)
     except Exception:
         payload["workspace_dirty_nodes"] = 0
     return payload
@@ -143,4 +142,3 @@ def update_cache_after_write(node, content: str, *, op: str) -> int:
         evict_cache_if_needed_locked()
         cache_metric_inc("write_ops")
         return next_version
-
