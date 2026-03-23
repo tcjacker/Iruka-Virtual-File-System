@@ -41,6 +41,18 @@ def assert_workspace_access_mode(
     return actual_mode
 
 
+def assert_workspace_readable(
+    workspace: AgentWorkspace,
+    *,
+    tenant_key: str,
+    scope_key: str | None = None,
+) -> str:
+    actual_mode = workspace_access_mode_for_runtime(workspace, int(workspace.id), tenant_key, scope_key=scope_key)
+    if actual_mode not in {VFS_ACCESS_MODE_HOST, VFS_ACCESS_MODE_AGENT}:
+        raise PermissionError(f"workspace access mode is '{actual_mode}', required readable mode")
+    return actual_mode
+
+
 def get_workspace_access_mode(
     db: Session,
     workspace: AgentWorkspace,

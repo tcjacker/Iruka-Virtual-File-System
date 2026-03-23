@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from iruka_vfs.constants import VFS_ROOT
 from iruka_vfs.dependencies import get_vfs_dependencies
 from iruka_vfs.dependency_resolution import resolve_vfs_repositories
 from iruka_vfs.memory_cache import (

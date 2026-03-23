@@ -43,6 +43,9 @@ class EphemeralLocalFlowTest(unittest.TestCase):
         _configure_ephemeral_local()
         self.dependency_resolution = _reload("iruka_vfs.dependency_resolution")
         self.service_state = _reload("iruka_vfs.service_ops.state")
+        _reload("iruka_vfs.models")
+        _reload("iruka_vfs.pathing.resolution")
+        _reload("iruka_vfs.runtime.filesystem")
         self.bootstrap = _reload("iruka_vfs.service_ops.bootstrap")
         self.access_mode = _reload("iruka_vfs.service_ops.access_mode")
         self.file_api = _reload("iruka_vfs.service_ops.file_api")
@@ -339,6 +342,38 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                     db,
                     workspace,
                     "cat /workspace/files/demo.txt",
+                    runtime_seed=runtime_seed,
+                    tenant_id="test-tenant",
+                )
+
+    def test_host_read_is_allowed_in_agent_mode_but_host_write_is_not(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 315, initial_text="hello-agent")
+
+            content = self.file_api.read_workspace_file(
+                db,
+                workspace,
+                "/workspace/files/demo.txt",
+                runtime_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            directory = self.file_api.read_workspace_directory(
+                db,
+                workspace,
+                "/workspace/files",
+                runtime_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+
+            self.assertEqual(content, "hello-agent")
+            self.assertIn("/workspace/files/demo.txt", directory)
+
+            with self.assertRaises(PermissionError):
+                self.file_api.write_workspace_file(
+                    db,
+                    workspace,
+                    "/workspace/files/demo.txt",
+                    "host-write",
                     runtime_seed=runtime_seed,
                     tenant_id="test-tenant",
                 )

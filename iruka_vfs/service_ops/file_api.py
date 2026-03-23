@@ -23,7 +23,7 @@ from iruka_vfs.pathing import list_children, node_path, path_is_under, resolve_p
 from iruka_vfs.runtime import collect_files, must_get_node, truncate_for_log
 from iruka_vfs.runtime.filesystem import get_or_create_session
 from iruka_vfs.runtime_seed import RuntimeSeed
-from iruka_vfs.service_ops.access_mode import assert_workspace_access_mode
+from iruka_vfs.service_ops.access_mode import assert_workspace_access_mode, assert_workspace_readable
 from iruka_vfs.service_ops.bootstrap import ensure_virtual_workspace, normalize_workspace_path, seed_workspace_file
 from iruka_vfs.service_ops.state import (
     enqueue_virtual_command_log,
@@ -232,10 +232,9 @@ def read_workspace_file(
 ) -> str:
     tenant_key = assert_workspace_tenant(workspace, tenant_id)
     ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id=tenant_key)
-    assert_workspace_access_mode(
+    assert_workspace_readable(
         workspace,
         tenant_key=tenant_key,
-        required_mode=VFS_ACCESS_MODE_HOST,
         scope_key=workspace_scope_for_db(db),
     )
     normalized = normalize_workspace_path(path, require_file=True)
@@ -257,10 +256,9 @@ def read_workspace_directory(
 ) -> dict[str, str]:
     tenant_key = assert_workspace_tenant(workspace, tenant_id)
     ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id=tenant_key)
-    assert_workspace_access_mode(
+    assert_workspace_readable(
         workspace,
         tenant_key=tenant_key,
-        required_mode=VFS_ACCESS_MODE_HOST,
         scope_key=workspace_scope_for_db(db),
     )
     normalized = normalize_workspace_path(path)
