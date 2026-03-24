@@ -50,6 +50,11 @@ def set_cached_workspace_state(scope_key: str, workspace_id: int, payload: dict[
         _workspace_cache[(scope_key, workspace_id)] = dict(payload)
 
 
+def clear_cached_workspace_state(scope_key: str, workspace_id: int) -> None:
+    with _workspace_cache_lock:
+        _workspace_cache.pop((scope_key, workspace_id), None)
+
+
 def register_runtime_seed(workspace_id: int, tenant_key: str, runtime_seed: RuntimeSeed) -> None:
     with runtime_state.runtime_seed_lock:
         runtime_state.runtime_seeds[(tenant_key, int(workspace_id))] = runtime_seed

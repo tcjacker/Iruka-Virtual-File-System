@@ -47,6 +47,17 @@ class VirtualWorkspace:
             tenant_id=self.tenant_id,
         )
 
+    def refresh(self, db: Session, *, include_tree: bool = True) -> dict[str, Any]:
+        from iruka_vfs import service
+
+        return service.refresh_virtual_workspace(
+            db,
+            self.workspace,
+            self.runtime_seed,
+            include_tree=include_tree,
+            tenant_id=self.tenant_id,
+        )
+
     def flush(self) -> bool:
         from iruka_vfs import service
 
@@ -124,4 +135,3 @@ class VirtualWorkspace:
     def tree(self, db: Session) -> str:
         snapshot = self.ensure(db, include_tree=True)
         return str(snapshot.get("tree") or "")
-

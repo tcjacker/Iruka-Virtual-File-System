@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from iruka_vfs.constants import VFS_ROOT
+from iruka_vfs.constants import MEMORY_CACHE_ENABLED, VFS_ROOT
 from iruka_vfs.dependencies import get_vfs_dependencies
 from iruka_vfs.dependency_resolution import resolve_vfs_repositories
 from iruka_vfs.memory_cache import (
@@ -59,6 +59,7 @@ from iruka_vfs.service_ops.access_mode import (
 )
 from iruka_vfs.service_ops.bootstrap import (
     ensure_virtual_dir_path as _ensure_virtual_dir_path,
+    refresh_virtual_workspace,
     ensure_virtual_workspace,
     normalize_workspace_path as _normalize_workspace_path,
     seed_workspace_file as _seed_workspace_file,
@@ -134,6 +135,7 @@ __all__ = [
     "get_workspace_access_mode",
     "read_workspace_directory",
     "read_workspace_file",
+    "refresh_virtual_workspace",
     "render_virtual_tree",
     "run_virtual_bash",
     "set_workspace_access_mode",

@@ -230,7 +230,29 @@ ok = workspace_handle.flush()
 print("flush ok:", ok)
 ```
 
-## 4.6 访问模式说明
+### 4.6 强制刷新 workspace mirror
+
+如果你怀疑 Redis / 本地缓存里的 workspace mirror 已经过期，或者已经和数据库不一致，可以显式调用：
+
+```python
+with SessionLocal() as db:
+    snapshot = workspace_handle.refresh(db)
+    print(snapshot.get("tree") or "")
+```
+
+这个接口的语义是：
+
+- 删除当前 `WorkspaceStateStore` 里的 mirror
+- 清掉对应的 snapshot cache
+- 仅根据数据库当前状态重建 workspace mirror
+
+注意：
+
+- 它不会重新 seed `workspace_files` / `context_files` / `skill_files`
+- 它的目标是让运行态 mirror 重新和数据库对齐
+- 如果当前 mirror 里有尚未 flush 的脏改动，调用这个接口会丢弃这些未落库修改
+
+## 4.7 访问模式说明
 
 当前 workspace 有两种访问模式：
 
@@ -460,6 +482,8 @@ print(host_file_text["value"])
 
 - `ensure(db)`
   初始化或加载 workspace mirror
+- `refresh(db, include_tree=True)`
+  丢弃当前运行态 mirror，并从数据库重建
 - `enter_agent_mode(db)`
   切到 agent 写模式
 - `enter_host_mode(db)`

@@ -22,6 +22,7 @@ from iruka_vfs.runtime.filesystem import (
 )
 from iruka_vfs.runtime_seed import RuntimeSeed
 from iruka_vfs.service_ops.state import (
+    clear_cached_workspace_state,
     get_cached_workspace_state,
     register_runtime_seed,
     set_cached_workspace_state,
@@ -30,6 +31,7 @@ from iruka_vfs.tree_view import render_virtual_tree
 from iruka_vfs.workspace_mirror import (
     assert_workspace_tenant,
     build_workspace_mirror,
+    delete_workspace_mirror,
     get_workspace_mirror,
     set_active_workspace_scope,
     set_active_workspace_tenant,
@@ -139,6 +141,45 @@ def ensure_virtual_workspace(
         set_cached_workspace_state(scope_key, workspace.id, snapshot)
         if include_tree:
             snapshot["tree"] = render_virtual_tree(db, workspace.id)
+        return snapshot
+    finally:
+        set_active_workspace_tenant(None)
+
+
+def refresh_virtual_workspace(
+    db: Session,
+    workspace: VFSDependenciesWorkspace,
+    runtime_seed: RuntimeSeed,
+    *,
+    include_tree: bool = True,
+    tenant_id: str | None = None,
+) -> dict[str, Any]:
+    tenant_key = assert_workspace_tenant(workspace, tenant_id)
+    scope_key = workspace_scope_for_db(db)
+    register_runtime_seed(int(workspace.id), tenant_key, runtime_seed)
+    set_active_workspace_tenant(tenant_key)
+    set_active_workspace_scope(scope_key)
+    try:
+        delete_workspace_mirror(
+            int(workspace.id),
+            tenant_id=tenant_key,
+            scope_key=scope_key,
+        )
+        clear_cached_workspace_state(scope_key, int(workspace.id))
+
+        session = get_or_create_session(db, int(workspace.id))
+        mirror = build_workspace_mirror(db, workspace, session=session)
+        set_workspace_mirror(mirror)
+
+        metadata = dict(mirror.workspace_metadata or {})
+        snapshot = {
+            "workspace_id": int(workspace.id),
+            "session_id": int(session.id),
+            "primary_file": str(metadata.get("virtual_primary_file") or metadata.get("virtual_chapter_file") or ""),
+        }
+        set_cached_workspace_state(scope_key, int(workspace.id), snapshot)
+        if include_tree:
+            snapshot["tree"] = render_virtual_tree(db, int(workspace.id))
         return snapshot
     finally:
         set_active_workspace_tenant(None)

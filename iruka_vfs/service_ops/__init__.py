@@ -10,6 +10,7 @@ from iruka_vfs.service_ops.bootstrap import (
     ensure_virtual_dir_path,
     ensure_virtual_workspace,
     normalize_workspace_path,
+    refresh_virtual_workspace,
     seed_workspace_file,
     sync_external_file_source,
     workspace_access_mode_from_metadata,
@@ -25,6 +26,7 @@ from iruka_vfs.service_ops.file_api import (
     write_workspace_file,
 )
 from iruka_vfs.service_ops.state import (
+    clear_cached_workspace_state,
     ensure_async_log_worker,
     enqueue_virtual_command_log,
     get_cached_workspace_state,
@@ -39,6 +41,7 @@ from iruka_vfs.service_ops.state import (
 __all__ = [
     "allow_write_path",
     "assert_workspace_access_mode",
+    "clear_cached_workspace_state",
     "ensure_async_log_worker",
     "ensure_virtual_dir_path",
     "ensure_virtual_workspace",
@@ -54,6 +57,7 @@ __all__ = [
     "normalize_workspace_path",
     "read_workspace_directory",
     "read_workspace_file",
+    "refresh_virtual_workspace",
     "register_runtime_seed",
     "resolve_target_path_for_write",
     "run_virtual_bash",
