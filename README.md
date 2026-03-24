@@ -13,6 +13,29 @@ It owns:
 
 It does not own host business concepts such as `Conversation`.
 
+## Quick Start
+
+Start with these two documents:
+
+- architecture: [docs/architecture.md](docs/architecture.md)
+- API integration and runtime profiles: [docs/api_integration.md](docs/api_integration.md)
+
+If you only need integration guidance, read `docs/api_integration.md` first.
+
+## Runtime Profiles
+
+| Profile | WorkspaceStateStore | VFSRepositories | External Dependencies | Recommended Use |
+| --- | --- | --- | --- | --- |
+| `persistent` | Redis | pgsql | Redis + PostgreSQL | production, durable state, recovery |
+| `ephemeral-local` | local memory | memory | none | local dev, demos, lowest-friction setup |
+| `ephemeral-redis` | Redis | memory | Redis | shared runtime state without database persistence |
+
+Choose:
+
+- `persistent` for durable production usage
+- `ephemeral-local` for the lightest demo flow
+- `ephemeral-redis` when you need shared runtime state but no PostgreSQL persistence
+
 ## Repository Layout
 
 ```text
@@ -41,12 +64,27 @@ The current refactor splits the package into:
 
 Stable entry points:
 
+- `iruka_vfs.build_profile_dependencies(...)`
+- `iruka_vfs.build_profile_persistent_dependencies(...)`
 - `iruka_vfs.configure_vfs_dependencies(...)`
 - `iruka_vfs.create_workspace(...)`
 - `workspace.ensure(db)`
 - `workspace.bash(db, "...")`
 - `workspace.flush()`
 - `iruka_vfs.service.snapshot_virtual_fs_cache_metrics()`
+
+Minimal setup:
+
+```python
+from iruka_vfs import build_profile_dependencies, configure_vfs_dependencies
+
+configure_vfs_dependencies(
+    build_profile_dependencies(
+        settings=settings,
+        runtime_profile="ephemeral-local",
+    )
+)
+```
 
 ## Integration Model
 
@@ -58,7 +96,10 @@ The recommended integration pattern is:
 4. Call `workspace.bash(db, "...")` for command execution
 5. Call `workspace.flush()` at a clear durability boundary
 
-See [`HOST_ADAPTER.md`](HOST_ADAPTER.md) for the host-side contract.
+See:
+
+- [`HOST_ADAPTER.md`](HOST_ADAPTER.md) for the host adapter contract
+- [`docs/api_integration.md`](docs/api_integration.md) for API usage, Redis, memory, and pgsql integration details
 
 ## Agent Integration
 
@@ -100,10 +141,10 @@ workspace = create_workspace(
     tenant_id="tenant-a",
     runtime_key="conv:1001",
     primary_file=WritableFileSource(
-        file_id="chapter:123",
-        virtual_path="/workspace/chapters/chapter_123.md",
-        read_text=load_chapter_text,
-        write_text=save_chapter_text,
+        file_id="document:123",
+        virtual_path="/workspace/files/document_123.md",
+        read_text=load_document_text,
+        write_text=save_document_text,
     ),
     workspace_files={
         "/workspace/docs/brief.md": "# Brief\n\nSeeded from Python.\n",
@@ -118,7 +159,7 @@ workspace.write_file(db, "/workspace/docs/generated.md", "hello from host")
 content = workspace.read_file(db, "/workspace/docs/brief.md")
 files = workspace.read_directory(db, "/workspace/docs")
 workspace.enter_agent_mode(db)
-result = workspace.bash(db, "cat /workspace/chapters/chapter_123.md")
+result = workspace.bash(db, "cat /workspace/files/document_123.md")
 workspace.enter_host_mode(db)
 workspace.flush()
 ```
@@ -135,13 +176,14 @@ Besides `workspace.bash(...)`, the host can manage virtual workspace files direc
 - `workspace.read_directory(db, path, recursive=True)`
 - `workspace.enter_agent_mode(db)` / `workspace.enter_host_mode(db)`
 
-Notes:
+Current access-mode rules:
 
 - Relative paths are resolved under `/workspace`
 - Parent directories are created automatically on write
 - Paths must stay under `/workspace`
 - `read_directory(...)` returns a `{virtual_path: content}` mapping
-- `write_file(...)`, `read_file(...)`, and `read_directory(...)` require `host` mode
+- `write_file(...)` requires `host` mode
+- `read_file(...)` and `read_directory(...)` are allowed in both `host` and `agent` mode
 - `workspace.bash(...)` requires `agent` mode
 
 ## Workspace Lifecycle
@@ -165,7 +207,7 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-## Standalone Demo
+## Demos
 
 Run the minimal demo from the repository root:
 
@@ -179,4 +221,16 @@ The demo uses:
 - demo SQLAlchemy models
 - an in-memory fake Redis
 
-It creates one workspace, mounts one writable chapter-like file into the VFS, runs `cat` and `edit`, and then flushes the workspace.
+It creates one workspace, mounts one writable business document into the VFS, runs `cat` and `edit`, and then flushes the workspace.
+
+Web demo:
+
+```bash
+python examples/vfs_web_demo.py --host 127.0.0.1 --port 8765
+```
+
+The web demo can switch between:
+
+- `persistent`
+- `ephemeral-local`
+- `ephemeral-redis`

@@ -13,6 +13,31 @@
 
 它不负责宿主业务概念，例如 `Conversation`。
 
+## 快速开始
+
+推荐先看两份文档：
+
+- 架构分层：[docs/architecture.md](/Users/tc/ai/Iruka-Virtual-File-System/docs/architecture.md)
+- API 接入与三种模式：[docs/api_integration.md](/Users/tc/ai/Iruka-Virtual-File-System/docs/api_integration.md)
+
+如果你只关心怎么接，优先看 `docs/api_integration.md`。
+
+## 三种运行模式
+
+当前推荐的运行模式如下：
+
+| 模式 | WorkspaceStateStore | VFSRepositories | 依赖 | 适用场景 |
+| --- | --- | --- | --- | --- |
+| `persistent` | Redis | pgsql | Redis + PostgreSQL | 正式环境、可恢复、可持久化 |
+| `ephemeral-local` | 本机内存 | memory | 无外部依赖 | 本地开发、demo、最轻量接入 |
+| `ephemeral-redis` | Redis | memory | Redis | 多实例共享运行态、但不落库 |
+
+推荐选择：
+
+- 要正式持久化：`persistent`
+- 要最轻量 demo：`ephemeral-local`
+- 要共享运行态但不想落库：`ephemeral-redis`
+
 ## 仓库结构
 
 ```text
@@ -43,12 +68,27 @@ iruka_vfs_repo/
 
 推荐使用的入口：
 
+- `iruka_vfs.build_profile_dependencies(...)`
+- `iruka_vfs.build_profile_persistent_dependencies(...)`
 - `iruka_vfs.configure_vfs_dependencies(...)`
 - `iruka_vfs.create_workspace(...)`
 - `workspace.ensure(db)`
 - `workspace.bash(db, "...")`
 - `workspace.flush()`
 - `iruka_vfs.service.snapshot_virtual_fs_cache_metrics()`
+
+最小接入示例：
+
+```python
+from iruka_vfs import build_profile_dependencies, configure_vfs_dependencies
+
+configure_vfs_dependencies(
+    build_profile_dependencies(
+        settings=settings,
+        runtime_profile="ephemeral-local",
+    )
+)
+```
 
 ## 推荐接入方式
 
@@ -60,7 +100,10 @@ iruka_vfs_repo/
 4. 通过 `workspace.bash(db, "...")` 执行命令
 5. 在明确的持久化边界调用 `workspace.flush()`
 
-更详细的宿主接入说明见 [HOST_ADAPTER.zh-CN.md](/Users/tc/ai/Iruka-Virtual-File-System/HOST_ADAPTER.zh-CN.md)。
+更详细说明见：
+
+- 宿主侧适配契约：[HOST_ADAPTER.zh-CN.md](/Users/tc/ai/Iruka-Virtual-File-System/HOST_ADAPTER.zh-CN.md)
+- API / Redis / 内存 / pgsql 接入：[docs/api_integration.md](/Users/tc/ai/Iruka-Virtual-File-System/docs/api_integration.md)
 
 ## Agent 接入路径
 
@@ -137,13 +180,14 @@ workspace.flush()
 - `workspace.read_directory(db, path, recursive=True)`
 - `workspace.enter_agent_mode(db)` / `workspace.enter_host_mode(db)`
 
-说明：
+当前访问模式说明：
 
 - 相对路径会自动挂到 `/workspace` 下
 - 写文件时会自动创建父目录
 - 路径必须位于 `/workspace` 之内
 - `read_directory(...)` 返回 `{virtual_path: content}` 映射
-- `write_file(...)`、`read_file(...)`、`read_directory(...)` 只能在 `host` 模式使用
+- `write_file(...)` 只能在 `host` 模式使用
+- `read_file(...)`、`read_directory(...)` 在 `host` 和 `agent` 模式都可读
 - `workspace.bash(...)` 只能在 `agent` 模式使用
 
 ## Workspace 生命周期
@@ -167,7 +211,7 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-## Demo
+## Demo 与测试
 
 在仓库根目录执行：
 
@@ -182,3 +226,15 @@ python examples/standalone_sqlite_demo.py
 - 内存版 fake Redis
 
 它会创建一个 workspace，挂载一个可写业务文档文件，执行 `cat` 和 `edit`，然后 flush 到宿主文件源。
+
+更完整的页面 demo：
+
+```bash
+python examples/vfs_web_demo.py --host 127.0.0.1 --port 8765
+```
+
+页面支持切换：
+
+- `persistent`
+- `ephemeral-local`
+- `ephemeral-redis`

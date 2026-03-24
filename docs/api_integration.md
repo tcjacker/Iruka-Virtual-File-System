@@ -23,6 +23,14 @@
 | `ephemeral-local` | `LocalMemoryStateStore` | `memory` | 单机 demo、本地调试、最轻量接入 |
 | `ephemeral-redis` | `RedisWorkspaceStateStore` | `memory` | 多实例共享运行态，但不落数据库 |
 
+三种模式的依赖要求：
+
+| 模式 | 需要 Redis | 需要 PostgreSQL | 数据是否持久化 |
+| --- | --- | --- | --- |
+| `persistent` | 是 | 是 | 是 |
+| `ephemeral-local` | 否 | 否 | 否 |
+| `ephemeral-redis` | 是 | 否 | 否 |
+
 ## 2. 对外入口
 
 推荐优先使用这几个对外 API：
@@ -222,6 +230,30 @@ ok = workspace_handle.flush()
 print("flush ok:", ok)
 ```
 
+## 4.6 访问模式说明
+
+当前 workspace 有两种访问模式：
+
+- `host`
+- `agent`
+
+权限规则：
+
+- `workspace.bash(...)` 只能在 `agent` 模式执行
+- `workspace.write_file(...)` 只能在 `host` 模式执行
+- `workspace.read_file(...)` 和 `workspace.read_directory(...)` 在 `host` / `agent` 两种模式都允许读取
+
+典型流程：
+
+```python
+workspace.ensure(db)
+workspace.enter_agent_mode(db)
+workspace.bash(db, "cat /workspace/files/demo.md")
+workspace.enter_host_mode(db)
+workspace.write_file(db, "/workspace/files/demo.md", "host-side update")
+workspace.flush()
+```
+
 ## 5. 三种模式示例
 
 ### 5.1 persistent
@@ -242,6 +274,22 @@ configure_vfs_dependencies(dependencies)
 - 支持 flush/checkpoint 后恢复
 - 适合多实例和长期数据保留
 
+接入要求：
+
+- `settings.redis_url` 可用
+- `settings.database_url` 指向 PostgreSQL
+- 建议在应用启动时一次性 `configure_vfs_dependencies(...)`
+
+示例：
+
+```python
+class Settings:
+    default_tenant_id = "prod"
+    redis_key_namespace = "iruka-vfs"
+    redis_url = "redis://127.0.0.1:6379/0"
+    database_url = "postgresql+psycopg://user:pass@127.0.0.1:5432/app"
+```
+
 ### 5.2 ephemeral-local
 
 适合 demo、单机测试、本地开发。运行态和 repository 都只在当前进程内存中。
@@ -261,6 +309,22 @@ configure_vfs_dependencies(dependencies)
 - 进程退出后数据丢失
 - 最适合前期接入 demo
 
+接入要求：
+
+- `settings` 仍然需要提供 `default_tenant_id`
+- `redis_url` / `database_url` 可以只是占位值
+- 不需要实际 Redis / PostgreSQL 服务
+
+示例：
+
+```python
+class Settings:
+    default_tenant_id = "demo"
+    redis_key_namespace = "iruka-vfs-demo"
+    redis_url = "memory://"
+    database_url = "sqlite+pysqlite:///:memory:"
+```
+
 ### 5.3 ephemeral-redis
 
 适合不想落数据库，但希望多个 worker 共享运行态的场景。
@@ -279,6 +343,22 @@ configure_vfs_dependencies(dependencies)
 - repository 仍为 memory
 - 不做数据库持久化
 - 适合共享会话型 demo
+
+接入要求：
+
+- `settings.redis_url` 可用
+- `database_url` 可以只是占位值
+- 不需要 PostgreSQL
+
+示例：
+
+```python
+class Settings:
+    default_tenant_id = "demo"
+    redis_key_namespace = "iruka-vfs-demo"
+    redis_url = "redis://127.0.0.1:6379/0"
+    database_url = "sqlite+pysqlite:///:memory:"
+```
 
 ## 6. 完整接入示例
 
@@ -412,13 +492,60 @@ workspace.bash(
 )
 ```
 
-## 9. 模式选择建议
+## 9. Redis / 内存 / pgsql 接入说明
+
+### 9.1 Redis
+
+Redis 在当前架构里是 `WorkspaceStateStore` 的实现载体，不只是旁路缓存。
+
+它主要承载：
+
+- workspace mirror
+- workspace 锁
+- dirty / checkpoint 调度
+- `ephemeral-redis` 的共享运行态
+- `persistent` 的运行态状态层
+
+接入时至少要保证：
+
+- `settings.redis_url` 正确
+- `settings.redis_key_namespace` 唯一
+- 多实例场景下使用同一个 namespace
+
+### 9.2 本机内存
+
+本机内存模式对应 `LocalMemoryStateStore + InMemoryRepositories`。
+
+特点：
+
+- 无外部依赖
+- 单进程有效
+- 重启即丢失
+- 最适合 demo / 单测 / 本地开发
+
+### 9.3 pgsql
+
+`pgsql` 对应持久化 repository backend。
+
+它承载：
+
+- workspace metadata
+- virtual file nodes
+- shell sessions
+- command logs
+
+推荐：
+
+- 仅在 `persistent` 模式使用
+- 使用 PostgreSQL，而不是把这条路径当成 SQLite demo backend
+
+## 10. 模式选择建议
 
 - 需要正式持久化、可恢复、可长期保留数据：`persistent`
 - 只想快速接 demo，不想配数据库和 Redis：`ephemeral-local`
 - 想要共享运行态，但仍不想落 PostgreSQL：`ephemeral-redis`
 
-## 10. 相关文件
+## 11. 相关文件
 
 - [__init__.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/__init__.py)
 - [profile_setup.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/profile_setup.py)
