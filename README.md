@@ -18,9 +18,9 @@ It does not own host business concepts such as `Conversation`.
 Start with these two documents:
 
 - architecture: [docs/architecture.md](docs/architecture.md)
-- API integration and runtime profiles: [docs/api_integration.md](docs/api_integration.md)
+- API integration and runtime profiles: [docs/api_integration.en.md](docs/api_integration.en.md)
 
-If you only need integration guidance, read `docs/api_integration.md` first.
+If you only need integration guidance, read `docs/api_integration.en.md` first.
 
 ## Runtime Profiles
 
@@ -100,7 +100,7 @@ The recommended integration pattern is:
 See:
 
 - [`HOST_ADAPTER.md`](HOST_ADAPTER.md) for the host adapter contract
-- [`docs/api_integration.md`](docs/api_integration.md) for API usage, Redis, memory, and pgsql integration details
+- [`docs/api_integration.en.md`](docs/api_integration.en.md) for API usage, Redis, memory, and pgsql integration details
 
 ## Agent Integration
 

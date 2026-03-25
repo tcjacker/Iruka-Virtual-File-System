@@ -1,0 +1,367 @@
+## Iruka VFS API Integration
+
+This document describes how to integrate `iruka_vfs` into a host system and how to choose between the three runtime profiles:
+
+- `persistent`
+- `ephemeral-local`
+- `ephemeral-redis`
+
+## 1. Core Model
+
+The runtime is split into two layers:
+
+- `WorkspaceStateStore`
+  The live runtime state used directly by the agent. It owns the file tree, file content, cwd, dirty flags, locks, and checkpoint scheduling.
+- `VFSRepositories`
+  The persistence layer. It owns durable reads and writes for workspaces, sessions, nodes, and command logs.
+
+Profile mapping:
+
+| Profile | WorkspaceStateStore | VFSRepositories | Typical Use |
+| --- | --- | --- | --- |
+| `persistent` | Redis | pgsql | production, durable recovery |
+| `ephemeral-local` | local memory | memory | local dev, demos |
+| `ephemeral-redis` | Redis | memory | shared runtime state without database persistence |
+
+Dependency requirements:
+
+| Profile | Needs Redis | Needs PostgreSQL | Durable |
+| --- | --- | --- | --- |
+| `persistent` | yes | yes | yes |
+| `ephemeral-local` | no | no | no |
+| `ephemeral-redis` | yes | no | no |
+
+## 2. Public Entry Points
+
+Recommended API surface:
+
+```python
+from iruka_vfs import (
+    build_profile_dependencies,
+    build_profile_persistent_dependencies,
+    build_workspace_seed,
+    configure_vfs_dependencies,
+    create_workspace,
+)
+```
+
+Responsibilities:
+
+- `build_profile_dependencies(...)`
+  Build dependencies from a selected runtime profile.
+- `build_profile_persistent_dependencies(...)`
+  Explicit builder for the `persistent` profile.
+- `configure_vfs_dependencies(...)`
+  Register the dependencies used by the current process.
+- `create_workspace(...)`
+  Build a `VirtualWorkspace` handle.
+- `build_workspace_seed(...)`
+  Build the seed used to initialize a virtual workspace.
+
+Minimal setup:
+
+```python
+from iruka_vfs import build_profile_dependencies, configure_vfs_dependencies
+
+
+configure_vfs_dependencies(
+    build_profile_dependencies(
+        settings=settings,
+        runtime_profile="ephemeral-local",
+    )
+)
+```
+
+Advanced integrations can still inject custom ORM models, repositories, or workspace-state stores through `VFSDependencies(...)`.
+
+## 3. Integration Prerequisites
+
+The host application typically provides:
+
+1. A workspace model, for example `AgentWorkspace`
+2. VFS ORM models
+3. An optional `load_project_state_payload(...)` callback
+
+Minimal callback shape:
+
+```python
+def load_project_state_payload(*args, **kwargs) -> dict:
+    return {}
+```
+
+## 4. Integration Flow
+
+### 4.1 Configure a Profile
+
+```python
+from iruka_vfs import build_profile_dependencies, configure_vfs_dependencies
+
+
+dependencies = build_profile_dependencies(
+    settings=settings,
+    runtime_profile="ephemeral-local",  # or "persistent" / "ephemeral-redis"
+)
+configure_vfs_dependencies(dependencies)
+```
+
+Explicit `persistent` setup:
+
+```python
+from iruka_vfs import build_profile_persistent_dependencies, configure_vfs_dependencies
+
+
+dependencies = build_profile_persistent_dependencies(settings=settings)
+configure_vfs_dependencies(dependencies)
+```
+
+### 4.2 Create a Workspace Handle
+
+Build a `WorkspaceSeed` explicitly and pass it to `create_workspace(...)`.
+
+```python
+from iruka_vfs import build_workspace_seed, create_workspace
+
+
+workspace_handle = create_workspace(
+    workspace=workspace_row,
+    tenant_id=workspace_row.tenant_id,
+    workspace_seed=build_workspace_seed(
+        runtime_key=workspace_row.runtime_key,
+        tenant_id=workspace_row.tenant_id,
+        workspace_files={
+            "/workspace/files/demo.md": "hello\n",
+            "/workspace/docs/brief.md": "# Workspace\n\nDemo workspace.\n",
+        },
+    ),
+)
+```
+
+### 4.3 Initialize the Workspace
+
+```python
+with SessionLocal() as db:
+    snapshot = workspace_handle.ensure(db)
+    print(snapshot.get("tree") or "")
+```
+
+### 4.4 Switch to Agent Mode and Run Commands
+
+```python
+with SessionLocal() as db:
+    workspace_handle.enter_agent_mode(db)
+    result = workspace_handle.bash(
+        db,
+        "cd /workspace/files && pwd && cat demo.md",
+    )
+    print(result["stdout"])
+```
+
+### 4.5 Flush Runtime State
+
+```python
+ok = workspace_handle.flush()
+print("flush ok:", ok)
+```
+
+### 4.6 Refresh the Workspace Mirror
+
+Use `refresh(...)` when you want to discard the current runtime mirror and rebuild from the database.
+
+```python
+with SessionLocal() as db:
+    snapshot = workspace_handle.refresh(db)
+    print(snapshot.get("tree") or "")
+```
+
+Behavior:
+
+- compare the current mirror with database state
+- skip rebuild when they already match
+- delete the current mirror and cached snapshot when they differ
+- rebuild the mirror from database state only
+
+Notes:
+
+- it does not re-seed `workspace_files`
+- its goal is to realign runtime state with database state
+- unflushed dirty changes in the mirror are discarded
+
+### 4.7 Access Modes
+
+Workspaces have two explicit access modes:
+
+- `host`
+- `agent`
+
+Rules:
+
+- `workspace.bash(...)` requires `agent` mode
+- `workspace.write_file(...)` requires `host` mode
+- `workspace.read_file(...)` and `workspace.read_directory(...)` are allowed in both modes
+
+Typical sequence:
+
+```python
+workspace.ensure(db)
+workspace.enter_agent_mode(db)
+workspace.bash(db, "cat /workspace/files/demo.md")
+workspace.enter_host_mode(db)
+workspace.write_file(db, "/workspace/files/demo.md", "host-side update")
+workspace.flush()
+```
+
+## 5. Runtime Profiles
+
+### 5.1 `persistent`
+
+Use for durable production environments.
+
+```python
+dependencies = build_profile_dependencies(
+    settings=settings,
+    runtime_profile="persistent",
+)
+configure_vfs_dependencies(dependencies)
+```
+
+Characteristics:
+
+- Redis-backed runtime state
+- pgsql repositories
+- durable recovery after flush/checkpoint
+
+### 5.2 `ephemeral-local`
+
+Use for local development and demos.
+
+```python
+dependencies = build_profile_dependencies(
+    settings=settings,
+    runtime_profile="ephemeral-local",
+)
+configure_vfs_dependencies(dependencies)
+```
+
+Characteristics:
+
+- in-process runtime state
+- in-memory repositories
+- no external dependencies
+
+### 5.3 `ephemeral-redis`
+
+Use when multiple instances need shared runtime state without durable persistence.
+
+```python
+dependencies = build_profile_dependencies(
+    settings=settings,
+    runtime_profile="ephemeral-redis",
+)
+configure_vfs_dependencies(dependencies)
+```
+
+Characteristics:
+
+- Redis-backed runtime state
+- in-memory repositories
+- no PostgreSQL requirement
+
+## 6. Complete Example
+
+```python
+from datetime import datetime
+
+from sqlalchemy import JSON, DateTime, Integer, String, Text, create_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+
+from iruka_vfs import (
+    build_profile_dependencies,
+    build_workspace_seed,
+    configure_vfs_dependencies,
+    create_workspace,
+)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class AgentWorkspace(Base):
+    __tablename__ = "vfs_workspaces"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, default="demo")
+    runtime_key: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Settings:
+    default_tenant_id = "demo"
+    redis_key_namespace = "iruka-vfs-demo"
+    redis_url = "memory://"
+    database_url = "sqlite+pysqlite:///:memory:"
+
+
+dependencies = build_profile_dependencies(
+    settings=Settings(),
+    runtime_profile="ephemeral-local",
+)
+configure_vfs_dependencies(dependencies)
+
+engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+Base.metadata.create_all(bind=engine)
+SessionLocal = sessionmaker(bind=engine, class_=Session, autoflush=False, autocommit=False)
+
+with SessionLocal() as db:
+    workspace_row = AgentWorkspace(
+        tenant_id="demo",
+        runtime_key="workspace:1",
+    )
+    db.add(workspace_row)
+    db.commit()
+    db.refresh(workspace_row)
+
+    workspace = create_workspace(
+        workspace=workspace_row,
+        tenant_id=workspace_row.tenant_id,
+        workspace_seed=build_workspace_seed(
+            runtime_key=workspace_row.runtime_key,
+            tenant_id=workspace_row.tenant_id,
+            workspace_files={
+                "/workspace/files/demo.md": "hello\n",
+            },
+        ),
+    )
+
+    workspace.ensure(db)
+    workspace.enter_agent_mode(db)
+    workspace.bash(
+        db,
+        "edit /workspace/files/demo.md --find hello --replace hello-world",
+    )
+    workspace.flush()
+    print(workspace.read_file(db, "/workspace/files/demo.md"))
+```
+
+## 7. Common `VirtualWorkspace` Methods
+
+Common methods are defined in `iruka_vfs/sdk/workspace_handle.py`:
+
+- `ensure(db)`
+  Initialize or load the workspace mirror.
+- `refresh(db, include_tree=True)`
+  Discard the current runtime mirror and rebuild from the database.
+- `enter_agent_mode(db)`
+  Switch to agent mode.
+- `enter_host_mode(db)`
+  Switch back to host mode.
+- `bash(db, raw_cmd)`
+  Run one virtual bash command.
+- `read_file(db, path)`
+  Read one file.
+- `write_file(db, path, content)`
+  Write one file directly.
+- `read_directory(db, path, recursive=True)`
+  Read files under a directory.
