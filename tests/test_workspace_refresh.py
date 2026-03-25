@@ -8,7 +8,12 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from iruka_vfs import WritableFileSource, build_profile_dependencies, configure_vfs_dependencies, create_workspace
+from iruka_vfs import (
+    build_profile_dependencies,
+    build_workspace_seed,
+    configure_vfs_dependencies,
+    create_workspace,
+)
 from iruka_vfs.sqlalchemy_models import Base, VFSFileNode, VFSWorkspace
 
 
@@ -51,8 +56,6 @@ class WorkspaceRefreshTest(unittest.TestCase):
         )
         Base.metadata.create_all(bind=self.engine)
         self.SessionLocal = sessionmaker(bind=self.engine, autoflush=False, autocommit=False, class_=Session)
-        self.host_text = {"value": "host-seed"}
-
     def tearDown(self) -> None:
         self.engine.dispose()
 
@@ -70,12 +73,10 @@ class WorkspaceRefreshTest(unittest.TestCase):
             workspace = create_workspace(
                 workspace=workspace_row,
                 tenant_id="test-tenant",
-                runtime_key="runtime:refresh-1",
-                primary_file=WritableFileSource(
-                    file_id="demo-file:refresh-1",
-                    virtual_path="/workspace/files/demo.txt",
-                    read_text=lambda: self.host_text["value"],
-                    write_text=lambda text: self.host_text.__setitem__("value", text),
+                workspace_seed=build_workspace_seed(
+                    runtime_key="runtime:refresh-1",
+                    tenant_id="test-tenant",
+                    workspace_files={"/workspace/files/demo.txt": "host-seed"},
                 ),
             )
 
@@ -118,12 +119,10 @@ class WorkspaceRefreshTest(unittest.TestCase):
             workspace = create_workspace(
                 workspace=workspace_row,
                 tenant_id="test-tenant",
-                runtime_key="runtime:refresh-2",
-                primary_file=WritableFileSource(
-                    file_id="demo-file:refresh-2",
-                    virtual_path="/workspace/files/demo.txt",
-                    read_text=lambda: self.host_text["value"],
-                    write_text=lambda text: self.host_text.__setitem__("value", text),
+                workspace_seed=build_workspace_seed(
+                    runtime_key="runtime:refresh-2",
+                    tenant_id="test-tenant",
+                    workspace_files={"/workspace/files/demo.txt": "host-seed"},
                 ),
             )
 
@@ -146,6 +145,88 @@ class WorkspaceRefreshTest(unittest.TestCase):
                 scope_key=scope_key,
             )
             self.assertIs(mirror_after, mirror_before)
+
+    def test_refresh_reloads_workspace_metadata_from_database(self) -> None:
+        with self.SessionLocal() as db:
+            workspace_row = VFSWorkspace(
+                tenant_id="test-tenant",
+                runtime_key="runtime:refresh-3",
+                metadata_json={},
+            )
+            db.add(workspace_row)
+            db.commit()
+            db.refresh(workspace_row)
+
+            workspace = create_workspace(
+                workspace=workspace_row,
+                tenant_id="test-tenant",
+                workspace_seed=build_workspace_seed(
+                    runtime_key="runtime:refresh-3",
+                    tenant_id="test-tenant",
+                    workspace_files={"/workspace/files/demo.txt": "host-seed"},
+                ),
+            )
+
+            workspace.ensure(db)
+            workspace_row.metadata_json = {
+                **dict(workspace_row.metadata_json or {}),
+                "virtual_access_mode": "agent",
+            }
+            db.add(workspace_row)
+            db.commit()
+
+            workspace.refresh(db, include_tree=False)
+
+            scope_key = self.workspace_mirror.workspace_scope_for_db(db)
+            store = self.service_state.get_workspace_state_store()
+            mirror = store.get_workspace_mirror(
+                int(workspace_row.id),
+                tenant_key="test-tenant",
+                scope_key=scope_key,
+            )
+            self.assertIsNotNone(mirror)
+            self.assertEqual(mirror.workspace_metadata["virtual_access_mode"], "agent")
+
+    def test_workspace_flush_persists_host_write_without_active_scope(self) -> None:
+        runtime_state = importlib.import_module("iruka_vfs.runtime_state")
+        runtime_state.workspace_checkpoint_session_maker = self.SessionLocal
+
+        with self.SessionLocal() as db:
+            workspace_row = VFSWorkspace(
+                tenant_id="test-tenant",
+                runtime_key="runtime:refresh-4",
+                metadata_json={},
+            )
+            db.add(workspace_row)
+            db.commit()
+            db.refresh(workspace_row)
+
+            workspace = create_workspace(
+                workspace=workspace_row,
+                tenant_id="test-tenant",
+                workspace_seed=build_workspace_seed(
+                    runtime_key="runtime:refresh-4",
+                    tenant_id="test-tenant",
+                    workspace_files={"/workspace/files/demo.txt": "host-seed"},
+                ),
+            )
+
+            workspace.ensure(db)
+            workspace.write_file(db, "/workspace/files/demo.txt", "host-updated")
+
+            self.assertTrue(workspace.flush())
+
+            db.expire_all()
+            node = db.scalar(
+                select(VFSFileNode).where(
+                    VFSFileNode.tenant_id == "test-tenant",
+                    VFSFileNode.workspace_id == int(workspace_row.id),
+                    VFSFileNode.name == "demo.txt",
+                )
+            )
+            self.assertIsNotNone(node)
+            self.assertEqual(node.content_text, "host-updated")
+            self.assertEqual(int(node.version_no), 2)
 
 
 if __name__ == "__main__":

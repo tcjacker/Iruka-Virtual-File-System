@@ -66,6 +66,7 @@ Stable entry points:
 
 - `iruka_vfs.build_profile_dependencies(...)`
 - `iruka_vfs.build_profile_persistent_dependencies(...)`
+- `iruka_vfs.build_workspace_seed(...)`
 - `iruka_vfs.configure_vfs_dependencies(...)`
 - `iruka_vfs.create_workspace(...)`
 - `workspace.ensure(db)`
@@ -92,7 +93,7 @@ The recommended integration pattern is:
 
 1. Configure dependencies once at process startup
 2. Build one workspace handle for one agent
-3. Bind one writable host file plus readonly context and skill files
+3. Seed the workspace with `workspace_files`
 4. Call `workspace.bash(db, "...")` for command execution
 5. Call `workspace.flush()` at a clear durability boundary
 
@@ -134,24 +135,20 @@ VirtualWorkspace.flush()
 ## Ideal SDK Shape
 
 ```python
-from iruka_vfs import WritableFileSource, create_workspace
+from iruka_vfs import build_workspace_seed, create_workspace
 
 workspace = create_workspace(
     workspace=workspace_model,
     tenant_id="tenant-a",
-    runtime_key="conv:1001",
-    primary_file=WritableFileSource(
-        file_id="document:123",
-        virtual_path="/workspace/files/document_123.md",
-        read_text=load_document_text,
-        write_text=save_document_text,
+    workspace_seed=build_workspace_seed(
+        runtime_key="conv:1001",
+        tenant_id="tenant-a",
+        workspace_files={
+            "/workspace/files/document_123.md": load_document_text(),
+            "/workspace/docs/brief.md": "# Brief\n\nSeeded from Python.\n",
+            "todo.txt": "- inspect outline\n",
+        },
     ),
-    workspace_files={
-        "/workspace/docs/brief.md": "# Brief\n\nSeeded from Python.\n",
-        "notes/todo.txt": "- inspect outline\n",
-    },
-    context_files={"outline.md": outline_text},
-    skill_files={"style.md": style_text},
 )
 
 workspace.ensure(db)
@@ -165,6 +162,8 @@ workspace.flush()
 ```
 
 This facade is intentionally lightweight. It can be reused across turns for the same agent/workspace identity, but it should not be used for concurrent command execution.
+
+`create_workspace(...)` takes a generic `workspace_seed`. Build it with `build_workspace_seed(...)` and put all initial files into `workspace_files`.
 
 ## Host File API
 
@@ -197,7 +196,7 @@ Recommended rules:
 - keep database sessions request-scoped rather than storing a long-lived `Session` inside a reusable workspace object
 - call `workspace.flush()` explicitly at turn end or another clear durability boundary
 
-In practice, the safest facade is a lightweight workspace object that stores identifiers and file-source config, while each command call receives the current request's DB session.
+In practice, the safest facade is a lightweight workspace object that stores identifiers and seed config, while each command call receives the current request's DB session.
 
 ## Local Install
 
@@ -221,7 +220,7 @@ The demo uses:
 - demo SQLAlchemy models
 - an in-memory fake Redis
 
-It creates one workspace, mounts one writable business document into the VFS, runs `cat` and `edit`, and then flushes the workspace.
+It creates one workspace, seeds files into the VFS, runs `cat` and `edit`, and then flushes the workspace.
 
 Web demo:
 

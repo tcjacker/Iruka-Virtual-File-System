@@ -1,23 +1,33 @@
 from __future__ import annotations
 
-from iruka_vfs.dependencies import get_vfs_dependencies
 from iruka_vfs.mirror.context import effective_workspace_scope
 
-_dependencies = get_vfs_dependencies()
-settings = _dependencies.settings
+
+def _settings():
+    from iruka_vfs.dependencies import get_vfs_dependencies
+
+    return get_vfs_dependencies().settings
 
 
 def workspace_base_key(tenant_key: str, workspace_id: int, scope_key: str | None = None) -> str:
+    settings = _settings()
     resolved_scope_key = effective_workspace_scope(scope_key)
     return f"{settings.redis_key_namespace}:vfs:scope:{resolved_scope_key}:tenant:{tenant_key}:workspace:{workspace_id}"
 
 
 def workspace_index_key(tenant_key: str, workspace_id: int, scope_key: str | None = None) -> str:
+    settings = _settings()
     resolved_scope_key = effective_workspace_scope(scope_key)
     return f"{settings.redis_key_namespace}:vfs:scope:{resolved_scope_key}:tenant:{tenant_key}:workspace-index:{workspace_id}"
 
 
+def workspace_latest_index_key(tenant_key: str, workspace_id: int) -> str:
+    settings = _settings()
+    return f"{settings.redis_key_namespace}:vfs:tenant:{tenant_key}:workspace-index-latest:{workspace_id}"
+
+
 def workspace_dirty_set_key() -> str:
+    settings = _settings()
     return f"{settings.redis_key_namespace}:vfs:dirty-workspaces"
 
 
@@ -42,10 +52,12 @@ def workspace_error_key(base_key: str) -> str:
 
 
 def workspace_queue_key() -> str:
+    settings = _settings()
     return f"{settings.redis_key_namespace}:vfs:checkpoint-queue"
 
 
 def workspace_enqueued_key() -> str:
+    settings = _settings()
     return f"{settings.redis_key_namespace}:vfs:checkpoint-enqueued"
 
 
@@ -58,6 +70,7 @@ def workspace_retry_count_key(base_key: str) -> str:
 
 
 def workspace_dead_letter_set_key() -> str:
+    settings = _settings()
     return f"{settings.redis_key_namespace}:vfs:checkpoint-dead-letter"
 
 

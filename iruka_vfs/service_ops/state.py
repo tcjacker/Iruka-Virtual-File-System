@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from iruka_vfs.constants import ASYNC_COMMAND_LOGGING
 from iruka_vfs.dependency_resolution import resolve_workspace_state_backend
 from iruka_vfs.dependencies import get_vfs_dependencies
-from iruka_vfs.runtime_seed import RuntimeSeed
+from iruka_vfs.runtime_seed import WorkspaceSeed
 from iruka_vfs import runtime_state
 from iruka_vfs.workspace_state_store import (
     LocalMemoryStateStore,
@@ -55,12 +55,12 @@ def clear_cached_workspace_state(scope_key: str, workspace_id: int) -> None:
         _workspace_cache.pop((scope_key, workspace_id), None)
 
 
-def register_runtime_seed(workspace_id: int, tenant_key: str, runtime_seed: RuntimeSeed) -> None:
+def register_runtime_seed(workspace_id: int, tenant_key: str, workspace_seed: WorkspaceSeed) -> None:
     with runtime_state.runtime_seed_lock:
-        runtime_state.runtime_seeds[(tenant_key, int(workspace_id))] = runtime_seed
+        runtime_state.runtime_seeds[(tenant_key, int(workspace_id))] = workspace_seed
 
 
-def get_registered_runtime_seed(workspace_id: int, tenant_key: str) -> RuntimeSeed | None:
+def get_registered_runtime_seed(workspace_id: int, tenant_key: str) -> WorkspaceSeed | None:
     with runtime_state.runtime_seed_lock:
         return runtime_state.runtime_seeds.get((tenant_key, int(workspace_id)))
 
@@ -94,8 +94,6 @@ def enqueue_virtual_command_log(payload: dict[str, Any]) -> None:
 
 
 def _virtual_command_log_worker(repositories) -> None:
-    if _log_session_maker is None:
-        return
     while True:
         first = _log_queue.get()
         batch = [first]
@@ -104,7 +102,10 @@ def _virtual_command_log_worker(repositories) -> None:
                 batch.append(_log_queue.get_nowait())
             except queue.Empty:
                 break
-        db = _log_session_maker()
+        session_maker = _log_session_maker
+        if session_maker is None:
+            return
+        db = session_maker()
         try:
             repositories.command_log.bulk_insert_command_logs(db, batch)
         except Exception:

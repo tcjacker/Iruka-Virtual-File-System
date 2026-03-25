@@ -16,7 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from iruka_vfs import WritableFileSource, create_workspace
+from iruka_vfs import build_workspace_seed, create_workspace
 from iruka_vfs.dependencies import VFSDependencies, configure_vfs_dependencies
 
 
@@ -176,8 +176,6 @@ def main() -> None:
     Base.metadata.create_all(bind=engine)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
 
-    primary_file_text = {"value": "First draft line.\nSecond line.\n"}
-
     with SessionLocal() as db:
         workspace_row = DemoWorkspace(
             tenant_id="demo",
@@ -192,16 +190,14 @@ def main() -> None:
         workspace = create_workspace(
             workspace=workspace_row,
             tenant_id="demo",
-            runtime_key=f"workspace:{workspace_row.id}",
-            primary_file=WritableFileSource(
-                file_id="demo-file:1",
-                virtual_path="/workspace/files/demo_file.md",
-                read_text=lambda: primary_file_text["value"],
-                write_text=lambda text: primary_file_text.__setitem__("value", text),
-                metadata={"source_type": "standalone-demo"},
+            workspace_seed=build_workspace_seed(
+                runtime_key=f"workspace:{workspace_row.id}",
+                tenant_id="demo",
+                workspace_files={
+                    "/workspace/files/demo_file.md": "First draft line.\nSecond line.\n",
+                    "/workspace/docs/outline.md": "# Outline\n\nA small standalone demo.\n",
+                },
             ),
-            context_files={"outline.md": "# Outline\n\nA small standalone demo.\n"},
-            skill_files={"index.md": "# Skills\n\n- none\n"},
         )
 
         snapshot = workspace.ensure(db)
@@ -219,7 +215,7 @@ def main() -> None:
         print("edit stdout:\n", edit_result["stdout"])
 
         workspace.flush()
-        print("host text after flush:\n", primary_file_text["value"])
+        print("final file after flush:\n", workspace.read_file(db, "/workspace/files/demo_file.md"))
 
 
 if __name__ == "__main__":

@@ -4,11 +4,6 @@ from dataclasses import dataclass, field
 from threading import RLock
 from typing import Any
 
-from iruka_vfs.dependencies import get_vfs_dependencies
-
-_dependencies = get_vfs_dependencies()
-VirtualFileNode = _dependencies.VirtualFileNode
-
 
 @dataclass
 class VirtualCommandResult:
@@ -38,7 +33,7 @@ class WorkspaceMirror:
     root_id: int
     session_id: int
     cwd_node_id: int
-    nodes: dict[int, VirtualFileNode]
+    nodes: dict[int, object]
     path_to_id: dict[str, int]
     children_by_parent: dict[int | None, list[int]]
     workspace_metadata: dict[str, Any]

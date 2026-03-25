@@ -4,8 +4,8 @@
 
 在很多 AI Agent 场景里，模型并不只是“生成一段文本”，而是在一个持续存在的工作空间里完成一系列操作：
 
-- 读取当前主文件内容
-- 查看上下文资料和技能说明
+- 读取工作区文件内容
+- 查看补充资料
 - 执行 `cat`、`ls`、`grep`、`edit`、`patch` 等命令
 - 在多轮交互中维持 `cwd`、文件树和编辑状态
 - 在合适的时机把结果回写到宿主系统
@@ -27,7 +27,7 @@
 - 运行时镜像和 checkpoint 机制在 `iruka_vfs/workspace_mirror.py`
 - 热路径文件内容缓存位于 `iruka_vfs/memory_cache.py`
 
-这意味着宿主系统只需要注入依赖、提供外部文件读写能力，就能把自己的业务对象挂接到这套 VFS 上。
+这意味着宿主系统只需要注入依赖，并把需要暴露给运行时的内容整理成 `workspace_files`，就能把自己的业务对象挂接到这套 VFS 上。
 
 ## 二、整体定位：它不是 OS 文件系统，而是 Agent 的执行沙箱
 
@@ -39,7 +39,7 @@
 Host Models / External Files
         |
         v
- RuntimeSeed + Dependency Injection
+ WorkspaceSeed + Dependency Injection
         |
         v
   Virtual Workspace Tree
@@ -51,12 +51,12 @@ Host Models / External Files
         +--> checkpoint / flush
         |
         v
- DB / Redis / Host writable file
+ DB / Redis
 ```
 
 这里最关键的点有两个：
 
-1. 它把“业务文件”映射进一个统一的虚拟目录树里，例如主文件会被挂载到 `/workspace/files/...`。
+1. 它把业务内容映射进一个统一的虚拟目录树里，例如文档会放到 `/workspace/files/...`。
 2. 它把“命令执行态”从数据库里抽出来，优先落在运行时镜像和缓存里，再通过显式 `flush()` 或后台 checkpoint 回写。
 
 这种设计非常适合以下场景：
@@ -85,24 +85,21 @@ configure_vfs_dependencies(
 第二步，基于宿主工作区对象创建一个可复用句柄：
 
 ```python
-from iruka_vfs import WritableFileSource, create_workspace
+from iruka_vfs import build_workspace_seed, create_workspace
 
 workspace = create_workspace(
     workspace=workspace_row,
     tenant_id="demo",
-    runtime_key="workspace:1",
-    primary_file=WritableFileSource(
-        file_id="document:1",
-        virtual_path="/workspace/files/document_1.md",
-        read_text=load_text,
-        write_text=save_text,
+    workspace_seed=build_workspace_seed(
+        runtime_key="workspace:1",
+        tenant_id="demo",
+        workspace_files={
+            "/workspace/files/document_1.md": load_text(),
+            "/workspace/docs/brief.md": "# Brief\n\nSeeded from Python.\n",
+            "todo.txt": "- inspect outline\n",
+            "/workspace/docs/outline.md": outline_text,
+        },
     ),
-    workspace_files={
-        "/workspace/docs/brief.md": "# Brief\n\nSeeded from Python.\n",
-        "notes/todo.txt": "- inspect outline\n",
-    },
-    context_files={"outline.md": outline_text},
-    skill_files={"index.md": skill_text},
 )
 ```
 
@@ -116,31 +113,18 @@ workspace = create_workspace(
 - `workspace.bash(db, "...")`：执行一条虚拟 shell 命令
 - `workspace.flush()`：在明确的持久化边界回写
 
-这套接口轻量的原因，在于它把复杂度都藏到了 `RuntimeSeed` 和依赖注入下面。
+这套接口轻量的原因，在于它把复杂度都藏到了 `WorkspaceSeed` 和依赖注入下面。
 
-### 3.1 RuntimeSeed：把宿主上下文投影到虚拟工作区
+### 3.1 WorkspaceSeed：把宿主上下文投影到虚拟工作区
 
-`RuntimeSeed` 定义在 `iruka_vfs/runtime_seed.py`，用于描述一次工作区初始化所需的最小信息：
+`WorkspaceSeed` 定义在 `iruka_vfs/runtime_seed.py`，用于描述一次工作区初始化所需的最小信息：
 
 - `runtime_key`：运行时身份
 - `tenant_id`：租户隔离键
-- `primary_file`：一个可写的外部文件源
 - `workspace_files`：初始化时批量注入到 `/workspace/...` 下的文件
-- `context_files`：上下文文件
-- `skill_files`：技能文件
 - `metadata`：扩展元数据
 
-这套模型非常实用，因为它没有要求宿主必须把所有业务对象都转换成数据库节点；只有真正需要暴露给 Agent 的内容，才会被投影进虚拟目录树。
-
-### 3.2 WritableFileSource：宿主文件与 VFS 的桥
-
-`WritableFileSource` 的定义非常直接：
-
-- `read_text()` 负责把宿主文件读入 VFS
-- `write_text(text)` 负责把 flush 后的结果写回宿主
-- `virtual_path` 负责声明它在虚拟空间里的挂载位置
-
-这比直接让 Agent 读写宿主 ORM 模型更干净。宿主只要实现“读文本”和“写文本”两个动作，VFS 就能接管后续的编辑、版本推进和命令执行。
+这套模型非常实用，因为它没有要求宿主必须把所有业务对象都转换成数据库节点；只有真正需要暴露给运行时的内容，才会被投影进虚拟目录树。
 
 ## 四、核心流程：`ensure -> (python file api | bash) -> flush`
 
@@ -153,26 +137,18 @@ workspace = create_workspace(
 这个过程大致做了以下几件事：
 
 1. 校验 workspace 的租户归属。
-2. 注册 `RuntimeSeed`，建立当前 workspace 的运行时上下文。
-3. 创建根目录以及固定目录结构：
-   - `/workspace`
-   - `/workspace/files`
-   - `/workspace/notes`
-   - `/workspace/context`
-   - `/workspace/skills`
-4. 把主文件、`workspace_files`、上下文文件、技能文件同步到虚拟节点表。
-5. 更新 workspace 元数据，例如虚拟主文件路径、可写根目录、上下文文件列表等。
+2. 注册 `WorkspaceSeed`，建立当前 workspace 的运行时上下文。
+3. 创建根目录以及工作区目录结构。
+4. 把 `workspace_files` 同步到虚拟节点表。
+5. 更新 workspace 元数据，例如可写根目录等。
 6. 创建或获取 shell session。
 7. 基于数据库中的所有节点构建一份 `WorkspaceMirror`。
 
-从博客读者视角，最值得注意的是它创建的是“约定优于配置”的工作区结构。也就是说，Agent 不需要知道宿主业务里“章节正文”“背景知识”“技能提示”分别来自哪里，它只会看到一棵稳定的树：
+从博客读者视角，最值得注意的是它创建的是稳定的工作区结构。Agent 不需要知道宿主业务对象来自哪里，它只会看到一棵统一的目录树：
 
 ```text
 /workspace
   /files
-  /notes
-  /context
-  /skills
 ```
 
 这比把宿主概念直接暴露给模型更稳，因为模型面对的是统一文件语义，而不是业务对象语义。
@@ -214,12 +190,15 @@ workspace.enter_host_mode(db)
 workspace = create_workspace(
     workspace=workspace_row,
     tenant_id="demo",
-    runtime_key="workspace:1",
-    primary_file=primary_file,
-    workspace_files={
-        "/workspace/docs/brief.md": "# Brief",
-        "notes/todo.txt": "- host seeded",
-    },
+    workspace_seed=build_workspace_seed(
+        runtime_key="workspace:1",
+        tenant_id="demo",
+        workspace_files={
+            "/workspace/files/demo.md": "hello",
+            "/workspace/docs/brief.md": "# Brief",
+            "todo.txt": "- host seeded",
+        },
+    ),
 )
 
 workspace.ensure(db)
@@ -470,7 +449,7 @@ WHERE id = :file_id AND version_no = :expected_version_no
 1. 用 SQLAlchemy 定义 demo 版 workspace、node、session、command 表。
 2. 用 `InMemoryRedis` 模拟 Redis。
 3. 创建一条宿主 workspace 记录。
-4. 用 `WritableFileSource` 把一份业务文档文本挂载到 `/workspace/files/document_1.md`。
+4. 把一份业务文档文本放进 `/workspace/files/document_1.md`。
 5. 调用：
    - `workspace.ensure(db)`
    - `workspace.write_file(db, ...)`

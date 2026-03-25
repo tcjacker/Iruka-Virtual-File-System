@@ -40,6 +40,42 @@ def _reload(module_name: str):
 
 
 class RuntimeProfilesTest(unittest.TestCase):
+    def test_reconfigure_without_reload_updates_resolved_layers(self) -> None:
+        dependency_resolution = importlib.import_module("iruka_vfs.dependency_resolution")
+        state_module = importlib.import_module("iruka_vfs.service_ops.state")
+
+        configure_vfs_dependencies(
+            build_profile_dependencies(
+                settings=SimpleNamespace(
+                    default_tenant_id="test-tenant",
+                    redis_key_namespace="test",
+                    redis_url="redis://localhost:6379/0",
+                    database_url="sqlite://",
+                ),
+                runtime_profile="ephemeral-local",
+            )
+        )
+        repositories = dependency_resolution.resolve_vfs_repositories()
+        store = state_module.get_workspace_state_store()
+        self.assertEqual(type(repositories.workspace).__name__, "InMemoryWorkspaceRepository")
+        self.assertEqual(type(store).__name__, "LocalMemoryStateStore")
+
+        configure_vfs_dependencies(
+            build_profile_dependencies(
+                settings=SimpleNamespace(
+                    default_tenant_id="test-tenant",
+                    redis_key_namespace="test",
+                    redis_url="redis://localhost:6379/0",
+                    database_url="sqlite://",
+                ),
+                runtime_profile="persistent",
+            )
+        )
+        repositories = dependency_resolution.resolve_vfs_repositories()
+        store = state_module.get_workspace_state_store()
+        self.assertEqual(type(repositories.workspace).__name__, "PostgreSQLWorkspaceRepository")
+        self.assertEqual(type(store).__name__, "RedisWorkspaceStateStore")
+
     def test_manual_vfs_dependencies_uses_internal_defaults(self) -> None:
         configure_vfs_dependencies(
             VFSDependencies(
@@ -147,10 +183,7 @@ class RuntimeProfilesTest(unittest.TestCase):
         runtime_seed = RuntimeSeed(
             runtime_key="runtime:test-101",
             tenant_id="test-tenant",
-            primary_file=None,
             workspace_files={"/workspace/files/demo.txt": "hello"},
-            context_files={"context.md": "ctx"},
-            skill_files={"skill.md": "skill"},
             metadata={},
         )
 

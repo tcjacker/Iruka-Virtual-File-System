@@ -96,7 +96,7 @@ configure_vfs_dependencies(
 
 1. 在进程启动时完成依赖配置
 2. 为一个 agent 创建一个 workspace 对象
-3. 绑定一个可写主文件，以及若干只读 context / skill 文件
+3. 通过 `workspace_files` 注入初始文件
 4. 通过 `workspace.bash(db, "...")` 执行命令
 5. 在明确的持久化边界调用 `workspace.flush()`
 
@@ -138,24 +138,20 @@ VirtualWorkspace.flush()
 ## 理想 SDK 形态
 
 ```python
-from iruka_vfs import WritableFileSource, create_workspace
+from iruka_vfs import build_workspace_seed, create_workspace
 
 workspace = create_workspace(
     workspace=workspace_model,
     tenant_id="tenant-a",
-    runtime_key="conv:1001",
-    primary_file=WritableFileSource(
-        file_id="document:123",
-        virtual_path="/workspace/files/document_123.md",
-        read_text=load_document_text,
-        write_text=save_document_text,
+    workspace_seed=build_workspace_seed(
+        runtime_key="conv:1001",
+        tenant_id="tenant-a",
+        workspace_files={
+            "/workspace/files/document_123.md": load_document_text(),
+            "/workspace/docs/brief.md": "# Brief\n\nSeeded from Python.\n",
+            "todo.txt": "- inspect outline\n",
+        },
     ),
-    workspace_files={
-        "/workspace/docs/brief.md": "# Brief\n\nSeeded from Python.\n",
-        "notes/todo.txt": "- inspect outline\n",
-    },
-    context_files={"outline.md": outline_text},
-    skill_files={"style.md": style_text},
 )
 
 workspace.ensure(db)
@@ -201,7 +197,7 @@ workspace.flush()
 - 数据库 `Session` 按请求创建和传入，不要长期保存在 workspace 对象里
 - 在 turn 结束或明确的持久化边界调用 `workspace.flush()`
 
-实践上，最安全的方式是让 workspace 对象只保存标识信息和文件绑定配置，而每次命令执行都使用当前请求的 DB session。
+实践上，最安全的方式是让 workspace 对象只保存标识信息和 seed 配置，而每次命令执行都使用当前请求的 DB session。
 
 ## 本地安装
 
@@ -225,7 +221,7 @@ python examples/standalone_sqlite_demo.py
 - 示例 SQLAlchemy 模型
 - 内存版 fake Redis
 
-它会创建一个 workspace，挂载一个可写业务文档文件，执行 `cat` 和 `edit`，然后 flush 到宿主文件源。
+它会创建一个 workspace，注入初始文件，执行 `cat` 和 `edit`，然后 flush。
 
 更完整的页面 demo：
 

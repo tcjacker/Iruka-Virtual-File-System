@@ -32,8 +32,7 @@ The host adapter should:
 
 1. Resolve host context such as `tenant_id`, `runtime_key`, and source record identifiers
 2. Build one workspace object for one agent
-3. Map one writable host file to the workspace's `primary_file`
-4. Map readonly host context and skill data to `context_files` and `skill_files`
+3. Materialize host-side content into `workspace_files`
 5. Call `workspace.ensure(db)` before command execution
 6. Call `workspace.bash(db, "...")` for each virtual command
 7. Call `workspace.flush()` at turn end or another explicit durability boundary
@@ -43,24 +42,21 @@ The host adapter should not push host-only business models into VFS APIs.
 ## Recommended API
 
 ```python
-from iruka_vfs import WritableFileSource, create_workspace
+from iruka_vfs import build_workspace_seed, create_workspace
 
 workspace = create_workspace(
     workspace=workspace_model,
     tenant_id=str(workspace_model.tenant_id),
-    runtime_key=str(workspace_model.runtime_key),
-    primary_file=WritableFileSource(
-        file_id=f"document:{document.id}",
-        virtual_path=f"/workspace/files/document_{document.id}.md",
-        read_text=lambda: document.body_text,
-        write_text=lambda text: save_document_body(document.id, text),
+    workspace_seed=build_workspace_seed(
+        runtime_key=str(workspace_model.runtime_key),
+        tenant_id=str(workspace_model.tenant_id),
+        workspace_files={
+            f"/workspace/files/document_{document.id}.md": document.body_text,
+            "/workspace/docs/brief.md": initial_brief_text,
+            "/workspace/docs/outline.md": outline_text,
+            "/workspace/docs/style.md": style_text,
+        },
     ),
-    workspace_files={
-        "/workspace/docs/brief.md": initial_brief_text,
-        "notes/host_seed.txt": "seeded by host adapter\n",
-    },
-    context_files={"outline.md": outline_text},
-    skill_files={"style.md": style_text},
 )
 
 workspace.ensure(db)
@@ -123,9 +119,8 @@ This keeps Redis-backed workspace state reusable while avoiding stale DB session
 Typical document-based host mapping:
 
 - host conversation/request -> choose runtime/workspace
-- host document/resource -> one writable VFS file like `/workspace/files/document_123.md`
-- host project state -> `/workspace/context/*.md`
-- host skills -> `/workspace/skills/*.md`
+- host document/resource -> one VFS file like `/workspace/files/document_123.md`
+- host project state -> supporting files under `/workspace/docs/...`
 
 ## Required Handle Inputs
 
@@ -134,13 +129,7 @@ At minimum the adapter must provide:
 - `workspace`
 - `runtime_key`
 - `tenant_id`
-- `primary_file`
-
-`primary_file` should usually be a `WritableFileSource` with:
-
-- `virtual_path`
-- `read_text()`
-- `write_text(text)`
+- `workspace_seed`
 
 ## Reference Pattern
 

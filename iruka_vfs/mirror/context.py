@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -8,13 +9,14 @@ from iruka_vfs.dependencies import get_vfs_dependencies
 from iruka_vfs.models import WorkspaceMirror
 from iruka_vfs import runtime_state
 
-_dependencies = get_vfs_dependencies()
-settings = _dependencies.settings
-AgentWorkspace = _dependencies.AgentWorkspace
+
+def _settings():
+    return get_vfs_dependencies().settings
 
 
-def workspace_tenant_key(workspace: AgentWorkspace) -> str:
+def workspace_tenant_key(workspace: Any) -> str:
     metadata = dict(workspace.metadata_json or {})
+    settings = _settings()
     tenant_key = str(
         getattr(workspace, "tenant_id", "")
         or metadata.get("tenant_id")
@@ -25,11 +27,12 @@ def workspace_tenant_key(workspace: AgentWorkspace) -> str:
 
 
 def normalize_tenant_id(tenant_id: str | None) -> str:
+    settings = _settings()
     normalized = str(tenant_id or "").strip()
     return normalized or settings.default_tenant_id
 
 
-def assert_workspace_tenant(workspace: AgentWorkspace, tenant_id: str | None) -> str:
+def assert_workspace_tenant(workspace: Any, tenant_id: str | None) -> str:
     expected = workspace_tenant_key(workspace)
     requested = normalize_tenant_id(tenant_id)
     if expected != requested:
@@ -77,11 +80,13 @@ def active_workspace_scope() -> str | None:
 
 
 def effective_tenant_key(explicit_tenant_key: str | None = None) -> str:
+    settings = _settings()
     tenant_key = str(explicit_tenant_key or active_workspace_tenant() or "").strip()
     return tenant_key or settings.default_tenant_id
 
 
 def workspace_scope_for_db(db: Session) -> str:
+    settings = _settings()
     if db is None or not hasattr(db, "get_bind"):
         base = str(getattr(settings, "database_url", "") or "in-memory-db")
         return hashlib.sha1(base.encode("utf-8")).hexdigest()[:12]
@@ -100,5 +105,6 @@ def effective_workspace_scope(explicit_scope_key: str | None = None) -> str:
     scope_key = str(explicit_scope_key or active_workspace_scope() or "").strip()
     if scope_key:
         return scope_key
+    settings = _settings()
     base = str(getattr(settings, "database_url", "") or "default-db")
     return hashlib.sha1(base.encode("utf-8")).hexdigest()[:12]

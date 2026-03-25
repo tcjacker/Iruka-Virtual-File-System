@@ -24,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from iruka_vfs import WritableFileSource, create_workspace
+from iruka_vfs import build_workspace_seed, create_workspace
 from iruka_vfs.dependencies import VFSDependencies, configure_vfs_dependencies
 
 
@@ -203,7 +203,6 @@ class DemoApp:
         self.session_local: sessionmaker
         self.workspace_row: DemoWorkspace | None = None
         self.workspace_handle: Any | None = None
-        self.primary_file_store: MutableText | None = None
         self.redis_client: InMemoryRedis | None = None
         self.tenant_id = "demo-ui"
         self.runtime_counter = 0
@@ -314,9 +313,6 @@ class DemoApp:
             self._clear_demo_runtime_state()
             self._clear_demo_rows()
             self.runtime_counter += 1
-            self.primary_file_store = MutableText(
-                "Scene opening.\nThe editor is live.\nMARKER_000\nMARKER_001\n"
-            )
             with self.session_local() as db:
                 workspace_row = DemoWorkspace(
                     tenant_id=self.tenant_id,
@@ -332,21 +328,15 @@ class DemoApp:
                 self.workspace_handle = create_workspace(
                     workspace=workspace_row,
                     tenant_id=self.tenant_id,
-                    runtime_key=f"web-demo:{workspace_row.id}:{self.runtime_counter}",
-                    primary_file=WritableFileSource(
-                        file_id="demo-file:1",
-                        virtual_path="/workspace/files/demo_file.md",
-                        read_text=self.primary_file_store.read,
-                        write_text=self.primary_file_store.write,
-                        metadata={"source_type": "web-demo"},
+                    workspace_seed=build_workspace_seed(
+                        runtime_key=f"web-demo:{workspace_row.id}:{self.runtime_counter}",
+                        tenant_id=self.tenant_id,
+                        workspace_files={
+                            "/workspace/files/demo_file.md": "Scene opening.\nThe editor is live.\nMARKER_000\nMARKER_001\n",
+                            "/workspace/docs/outline.md": "# Outline\n\n- Verify bash edits\n- Inspect tree\n",
+                            "/workspace/docs/style.md": "# Style\n\nKeep edits local and deterministic.\n",
+                        },
                     ),
-                    context_files={
-                        "outline.md": "# Outline\n\n- Verify bash edits\n- Inspect tree\n",
-                        "notes.md": "Use /workspace/notes for scratch files.\n",
-                    },
-                    skill_files={
-                        "style.md": "# Style\n\nKeep edits local and deterministic.\n",
-                    },
                 )
                 self.workspace_handle.ensure(db, include_tree=False)
                 self.workspace_handle.enter_agent_mode(db)
@@ -574,7 +564,7 @@ class DemoApp:
         from iruka_vfs.service_ops.state import get_workspace_state_store
         from iruka_vfs.workspace_mirror import snapshot_workspace_checkpoint_metrics
 
-        if self.workspace_handle is None or self.workspace_row is None or self.primary_file_store is None:
+        if self.workspace_handle is None or self.workspace_row is None:
             raise RuntimeError("workspace is not initialized")
         with self.lock:
             with self.session_local() as db:
@@ -610,9 +600,8 @@ class DemoApp:
                 "session_repository_class": type(repositories.session).__name__,
                 "node_repository_class": type(repositories.node).__name__,
                 "command_log_repository_class": type(repositories.command_log).__name__,
-                "primary_file": str(snapshot.get("primary_file") or ""),
                 "tree": str(snapshot.get("tree") or ""),
-                "host_text": self.primary_file_store.read(),
+                "demo_file_text": self.workspace_handle.read_file(db, "/workspace/files/demo_file.md"),
                 "cache_metrics": snapshot_virtual_fs_cache_metrics(),
                 "checkpoint_metrics": snapshot_workspace_checkpoint_metrics(),
                 "recent_commands": recent_payload,

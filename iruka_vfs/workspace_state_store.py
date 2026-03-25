@@ -207,7 +207,12 @@ class RedisWorkspaceStateStore:
             return active
         resolved_tenant_key = mirror_api.effective_tenant_key(tenant_key)
         resolved_scope_key = mirror_api.effective_workspace_scope(scope_key)
-        base_key = self._client().get(_workspace_index_key(resolved_tenant_key, workspace_id, resolved_scope_key))
+        client = self._client()
+        base_key = client.get(_workspace_index_key(resolved_tenant_key, workspace_id, resolved_scope_key))
+        if not base_key and scope_key is None:
+            from iruka_vfs.mirror.keys import workspace_latest_index_key
+
+            base_key = client.get(workspace_latest_index_key(resolved_tenant_key, workspace_id))
         if not base_key:
             return None
         return self.load_workspace_mirror(
@@ -234,11 +239,13 @@ class RedisWorkspaceStateStore:
 
     def set_workspace_mirror(self, mirror: WorkspaceMirror) -> WorkspaceStateRef:
         from iruka_vfs.mirror.keys import workspace_mirror_dirty_nodes_key, workspace_mirror_key, workspace_mirror_nodes_key
+        from iruka_vfs.mirror.keys import workspace_latest_index_key
 
         client = self._client()
         workspace_ref = self.workspace_ref(mirror=mirror)
         base_key = self._base_key(workspace_ref)
         client.set(_workspace_index_key(workspace_ref.tenant_key, workspace_ref.workspace_id, workspace_ref.scope_key), base_key)
+        client.set(workspace_latest_index_key(workspace_ref.tenant_key, workspace_ref.workspace_id), base_key)
         dirty_node_ids = mirror.dirty_content_node_ids | mirror.dirty_structure_node_ids
         use_full_snapshot = (
             not dirty_node_ids
@@ -269,7 +276,12 @@ class RedisWorkspaceStateStore:
         tenant_key: str | None = None,
         scope_key: str | None = None,
     ) -> None:
-        from iruka_vfs.mirror.keys import workspace_mirror_dirty_nodes_key, workspace_mirror_key, workspace_mirror_nodes_key
+        from iruka_vfs.mirror.keys import (
+            workspace_latest_index_key,
+            workspace_mirror_dirty_nodes_key,
+            workspace_mirror_key,
+            workspace_mirror_nodes_key,
+        )
 
         from iruka_vfs import workspace_mirror as mirror_api
         resolved_tenant_key = mirror_api.effective_tenant_key(tenant_key)
@@ -290,6 +302,9 @@ class RedisWorkspaceStateStore:
         self.clear_error_payload(workspace_ref)
         self.clear_checkpoint_schedule(workspace_ref)
         client.delete(_workspace_index_key(resolved_tenant_key, workspace_id, resolved_scope_key))
+        latest_key = workspace_latest_index_key(resolved_tenant_key, workspace_id)
+        if str(client.get(latest_key) or "") == base_key:
+            client.delete(latest_key)
         self.clear_workspace_dirty(workspace_ref)
 
     def workspace_lock(
@@ -332,7 +347,7 @@ class RedisWorkspaceStateStore:
         scheduled_at = due_at if due_at is not None else time.time()
         client.set(workspace_due_key(base_key), str(scheduled_at))
         if int(client.sadd(workspace_enqueued_key(), base_key) or 0) == 1:
-            client.rpush(workspace_queue_key(), base_key)
+            client.rpush(workspace_queue_key(), _queue_token(workspace_ref))
 
     def pop_checkpoint(self, timeout_seconds: int) -> WorkspaceStateRef | None:
         from iruka_vfs.mirror.keys import workspace_queue_key
@@ -565,6 +580,8 @@ class LocalMemoryStateStore:
         resolved_tenant_key = mirror_api.effective_tenant_key(tenant_key)
         resolved_scope_key = mirror_api.effective_workspace_scope(scope_key)
         base_key = self._state.local_workspace_indexes.get((resolved_tenant_key, int(workspace_id), resolved_scope_key))
+        if not base_key and scope_key is None:
+            base_key = self._state.local_workspace_indexes.get((resolved_tenant_key, int(workspace_id), None))
         if not base_key:
             return None
         return self._state.local_workspace_mirrors.get(base_key)
@@ -577,6 +594,7 @@ class LocalMemoryStateStore:
         base_key = self._base_key(workspace_ref)
         self._state.local_workspace_mirrors[base_key] = mirror
         self._state.local_workspace_indexes[(workspace_ref.tenant_key, workspace_ref.workspace_id, workspace_ref.scope_key)] = base_key
+        self._state.local_workspace_indexes[(workspace_ref.tenant_key, workspace_ref.workspace_id, None)] = base_key
         if _mirror_has_dirty_state(mirror):
             self.mark_workspace_dirty(workspace_ref)
             self.enqueue_workspace_checkpoint(workspace_ref)
@@ -601,6 +619,8 @@ class LocalMemoryStateStore:
             return
         self._state.local_workspace_mirrors.pop(base_key, None)
         workspace_ref = WorkspaceStateRef(resolved_tenant_key, int(workspace_id), resolved_scope_key)
+        if self._state.local_workspace_indexes.get((resolved_tenant_key, int(workspace_id), None)) == base_key:
+            self._state.local_workspace_indexes.pop((resolved_tenant_key, int(workspace_id), None), None)
         self.clear_error_payload(workspace_ref)
         self.clear_dead_letter_payload(workspace_ref)
         self.clear_retry_count(workspace_ref)

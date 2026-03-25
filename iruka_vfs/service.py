@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from iruka_vfs.constants import MEMORY_CACHE_ENABLED, VFS_ROOT
-from iruka_vfs.dependencies import get_vfs_dependencies
-from iruka_vfs.dependency_resolution import resolve_vfs_repositories
 from iruka_vfs.memory_cache import (
     cache_metric_inc as _cache_metric_inc,
     ensure_mem_cache_worker as _ensure_mem_cache_worker_api,
@@ -50,20 +48,20 @@ from iruka_vfs.runtime import (
     truncate_for_log as _truncate_for_log,
     write_file as _write_file,
 )
-from iruka_vfs.runtime_seed import RuntimeSeed
-from iruka_vfs.service_ops.access_mode import (
+from iruka_vfs.runtime_seed import RuntimeSeed, WorkspaceSeed
+from iruka_vfs.integrations.agent.access_mode import (
     assert_workspace_access_mode as _assert_workspace_access_mode,
     get_workspace_access_mode,
     set_workspace_access_mode,
     workspace_access_mode_for_runtime as _workspace_access_mode_for_runtime,
 )
+from iruka_vfs.integrations.agent.shell import run_virtual_bash
 from iruka_vfs.service_ops.bootstrap import (
     ensure_virtual_dir_path as _ensure_virtual_dir_path,
     refresh_virtual_workspace,
     ensure_virtual_workspace,
     normalize_workspace_path as _normalize_workspace_path,
     seed_workspace_file as _seed_workspace_file,
-    sync_external_file_source as _sync_external_file_source,
     workspace_access_mode_from_metadata as _workspace_access_mode_from_metadata,
 )
 from iruka_vfs.service_ops.file_api import (
@@ -73,7 +71,6 @@ from iruka_vfs.service_ops.file_api import (
     read_workspace_directory,
     read_workspace_file,
     resolve_target_path_for_write as _resolve_target_path_for_write,
-    run_virtual_bash,
     write_workspace_file,
 )
 from iruka_vfs.service_ops.state import (
@@ -114,21 +111,13 @@ from iruka_vfs.workspace_mirror import (
     workspace_scope_for_db as _workspace_scope_for_db,
 )
 
-_dependencies = get_vfs_dependencies()
-_repositories = resolve_vfs_repositories()
-settings = _dependencies.settings
-AgentWorkspace = _dependencies.AgentWorkspace
-VirtualFileNode = _dependencies.VirtualFileNode
-VirtualShellCommand = _dependencies.VirtualShellCommand
-VirtualShellSession = _dependencies.VirtualShellSession
-
 __all__ = [
     "AgentWorkspace",
-    "RuntimeSeed",
     "VirtualCommandResult",
     "VirtualFileNode",
     "VirtualShellCommand",
     "VirtualShellSession",
+    "WorkspaceSeed",
     "WorkspaceMirror",
     "ensure_virtual_workspace",
     "flush_workspace",
@@ -141,4 +130,25 @@ __all__ = [
     "set_workspace_access_mode",
     "snapshot_virtual_fs_cache_metrics",
     "write_workspace_file",
+    "RuntimeSeed",
 ]
+
+
+def __getattr__(name: str):
+    if name == "_dependencies":
+        from iruka_vfs.dependencies import get_vfs_dependencies
+
+        return get_vfs_dependencies()
+    if name == "_repositories":
+        from iruka_vfs.dependency_resolution import resolve_vfs_repositories
+
+        return resolve_vfs_repositories()
+    if name == "settings":
+        from iruka_vfs.dependencies import get_vfs_dependencies
+
+        return get_vfs_dependencies().settings
+    if name in {"AgentWorkspace", "VirtualFileNode", "VirtualShellCommand", "VirtualShellSession"}:
+        from iruka_vfs.dependencies import get_vfs_dependencies
+
+        return getattr(get_vfs_dependencies(), name)
+    raise AttributeError(name)

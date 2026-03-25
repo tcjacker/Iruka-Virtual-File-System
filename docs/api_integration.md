@@ -37,9 +37,9 @@
 
 ```python
 from iruka_vfs import (
-    WritableFileSource,
     build_profile_dependencies,
     build_profile_persistent_dependencies,
+    build_workspace_seed,
     configure_vfs_dependencies,
     create_workspace,
 )
@@ -55,8 +55,8 @@ from iruka_vfs import (
   注册当前进程使用的 VFS 依赖。
 - `create_workspace(...)`
   创建一个 `VirtualWorkspace` 句柄。
-- `WritableFileSource(...)`
-  把宿主侧可读写文件映射成 VFS 中的主文件。
+- `build_workspace_seed(...)`
+  构造通用 `WorkspaceSeed`。
 
 如果你仍然直接手工构造 `VFSDependencies(...)`，现在默认也会使用内部模型：
 
@@ -175,30 +175,24 @@ dependencies = build_profile_dependencies(
 
 ### 4.2 创建 workspace 句柄
 
+推荐先显式构造 `WorkspaceSeed`，再创建句柄。
+
+通用 VFS 用法：
+
 ```python
-from iruka_vfs import WritableFileSource, create_workspace
+from iruka_vfs import build_workspace_seed, create_workspace
 
 
 workspace_handle = create_workspace(
     workspace=workspace_row,
     tenant_id=workspace_row.tenant_id,
-    runtime_key=workspace_row.runtime_key,
-    primary_file=WritableFileSource(
-        file_id=f"workspace:{workspace_row.id}:primary",
-        virtual_path="/workspace/files/demo.md",
-        read_text=lambda: host_file_text["value"],
-        write_text=lambda text: host_file_text.__setitem__("value", text),
-        metadata={"source_type": "business-primary-file"},
+    workspace_seed=build_workspace_seed(
+        runtime_key=workspace_row.runtime_key,
+        tenant_id=workspace_row.tenant_id,
+        workspace_files={
+            "README.md": "# Workspace\n\nDemo workspace.\n",
+        },
     ),
-    workspace_files={
-        "README.md": "# Workspace\n\nDemo workspace.\n",
-    },
-    context_files={
-        "context/project.md": "# Project Context\n\nLoaded from host app.\n",
-    },
-    skill_files={
-        "skills/index.md": "# Skills\n\n- none\n",
-    },
 )
 ```
 
@@ -249,7 +243,7 @@ with SessionLocal() as db:
 
 注意：
 
-- 它不会重新 seed `workspace_files` / `context_files` / `skill_files`
+- 它不会重新 seed `workspace_files`
 - 它的目标是让运行态 mirror 重新和数据库对齐
 - 如果当前 mirror 里有尚未 flush 的脏改动，调用这个接口会丢弃这些未落库修改
 
@@ -394,7 +388,7 @@ from sqlalchemy import JSON, DateTime, Integer, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from iruka_vfs import (
-    WritableFileSource,
+    build_workspace_seed,
     build_profile_dependencies,
     configure_vfs_dependencies,
     create_workspace,
@@ -441,8 +435,6 @@ engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
 Base.metadata.create_all(bind=engine)
 SessionLocal = sessionmaker(bind=engine, class_=Session, autoflush=False, autocommit=False)
 
-host_file_text = {"value": "hello\n"}
-
 with SessionLocal() as db:
     workspace_row = AgentWorkspace(
         tenant_id="demo",
@@ -456,13 +448,12 @@ with SessionLocal() as db:
     workspace = create_workspace(
         workspace=workspace_row,
         tenant_id=workspace_row.tenant_id,
-        runtime_key=workspace_row.runtime_key,
-        primary_file=WritableFileSource(
-            file_id="demo-file:1",
-            virtual_path="/workspace/files/demo.md",
-            read_text=lambda: host_file_text["value"],
-            write_text=lambda text: host_file_text.__setitem__("value", text),
-            metadata={"source_type": "demo"},
+        workspace_seed=build_workspace_seed(
+            runtime_key=workspace_row.runtime_key,
+            tenant_id=workspace_row.tenant_id,
+            workspace_files={
+                "/workspace/files/demo.md": "hello\n",
+            },
         ),
     )
 
@@ -473,8 +464,7 @@ with SessionLocal() as db:
         "edit /workspace/files/demo.md --find hello --replace hello-world",
     )
     workspace.flush()
-
-print(host_file_text["value"])
+    print(workspace.read_file(db, "/workspace/files/demo.md"))
 ```
 
 ## 7. 常用 API

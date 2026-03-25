@@ -7,11 +7,8 @@ from sqlalchemy.orm import Session
 
 from iruka_vfs.constants import (
     VFS_ACCESS_MODE_HOST,
-    VFS_NOTES_ROOT,
     VFS_ROOT,
 )
-from iruka_vfs.dependency_resolution import resolve_vfs_repositories
-from iruka_vfs.dependencies import get_vfs_dependencies
 from iruka_vfs.memory_cache import get_node_content, get_node_version
 from iruka_vfs.pathing import path_is_under, resolve_path
 from iruka_vfs.runtime.filesystem import (
@@ -21,7 +18,7 @@ from iruka_vfs.runtime.filesystem import (
     get_or_create_session,
     write_file,
 )
-from iruka_vfs.runtime_seed import RuntimeSeed
+from iruka_vfs.runtime_seed import WorkspaceSeed
 from iruka_vfs.service_ops.state import (
     clear_cached_workspace_state,
     get_cached_workspace_state,
@@ -41,24 +38,23 @@ from iruka_vfs.workspace_mirror import (
 )
 from iruka_vfs.workspace_state_serialization import serialize_workspace_mirror
 
-_dependencies = get_vfs_dependencies()
-_repositories = resolve_vfs_repositories()
-VFSDependenciesWorkspace = _dependencies.AgentWorkspace
+def _repositories():
+    from iruka_vfs.dependency_resolution import resolve_vfs_repositories
+
+    return resolve_vfs_repositories()
 
 
 def ensure_virtual_workspace(
     db: Session,
-    workspace: VFSDependenciesWorkspace,
-    runtime_seed: RuntimeSeed,
+    workspace: Any,
+    workspace_seed: WorkspaceSeed,
     *,
     include_tree: bool = True,
-    available_skills: list[dict[str, Any]] | None = None,
     tenant_id: str | None = None,
 ) -> dict[str, Any]:
     tenant_key = assert_workspace_tenant(workspace, tenant_id)
     scope_key = workspace_scope_for_db(db)
-    seed = runtime_seed
-    register_runtime_seed(int(workspace.id), tenant_key, seed)
+    register_runtime_seed(int(workspace.id), tenant_key, workspace_seed)
     set_active_workspace_tenant(tenant_key)
     set_active_workspace_scope(scope_key)
     try:
@@ -68,69 +64,44 @@ def ensure_virtual_workspace(
             scope_key=scope_key,
         )
         cached = get_cached_workspace_state(scope_key, workspace.id)
-        if cached and mirror and available_skills is None:
+        if cached and mirror:
             if include_tree:
                 cached["tree"] = render_virtual_tree(db, workspace.id)
             return cached
 
         root = get_or_create_root(db, workspace.id)
-        workspace_dir = get_or_create_child_dir(db, workspace.id, root.id, "workspace")
-        documents_dir = get_or_create_child_dir(db, workspace.id, workspace_dir.id, "files")
-        get_or_create_child_dir(db, workspace.id, workspace_dir.id, "notes")
-        context_dir = get_or_create_child_dir(db, workspace.id, workspace_dir.id, "context")
-        skills_dir = get_or_create_child_dir(db, workspace.id, workspace_dir.id, "skills")
+        get_or_create_child_dir(db, workspace.id, root.id, "workspace")
 
-        primary_file_path = None
-        if seed.primary_file is not None:
-            primary_file_path = sync_external_file_source(
-                db,
-                workspace_id=workspace.id,
-                parent_id=documents_dir.id,
-                source=seed.primary_file,
-                sync_op="sync_from_primary_file",
-            )
-
-        for file_name, content in seed.context_files.items():
-            context_node = get_or_create_child_file(db, workspace.id, context_dir.id, file_name, content)
-            if get_node_content(db, context_node) != content:
-                write_file(db, context_node, content, op="sync_from_project_state")
-
-        for path, content in seed.workspace_files.items():
+        for path, content in workspace_seed.workspace_files.items():
             seed_workspace_file(
                 db,
                 workspace.id,
                 path,
                 content,
                 op="sync_from_workspace_files",
+                overwrite_existing=False,
             )
-
-        for file_name, content in seed.skill_files.items():
-            skill_node = get_or_create_child_file(db, workspace.id, skills_dir.id, file_name, content)
-            if get_node_content(db, skill_node) != content:
-                write_file(db, skill_node, content, op="sync_from_skills")
 
         metadata = dict(workspace.metadata_json or {})
         metadata["tenant_id"] = tenant_key
-        metadata["virtual_primary_file"] = (
-            primary_file_path
-            or str(seed.metadata.get("virtual_primary_file") or seed.metadata.get("virtual_chapter_file") or "")
-        )
         metadata["virtual_writable_roots"] = [VFS_ROOT]
         metadata["virtual_readonly_roots"] = []
-        metadata["virtual_notes_dir"] = VFS_NOTES_ROOT
         metadata["virtual_access_mode"] = workspace_access_mode_from_metadata(metadata)
-        metadata["virtual_workspace_files"] = sorted(normalize_workspace_path(path, require_file=True) for path in seed.workspace_files)
-        metadata["virtual_context_files"] = sorted(seed.context_files.keys())
-        metadata["virtual_skill_files"] = sorted(seed.skill_files.keys())
+        metadata["virtual_workspace_files"] = sorted(
+            normalize_workspace_path(path, require_file=True) for path in workspace_seed.workspace_files
+        )
         metadata["virtual_workspace_ready"] = True
-        metadata.update(seed.metadata)
+        metadata.update(workspace_seed.metadata)
         if workspace.metadata_json != metadata or str(getattr(workspace, "tenant_id", "") or "") != tenant_key:
-            _repositories.workspace.update_workspace_metadata(
+            _repositories().workspace.update_workspace_metadata(
                 db,
                 workspace_id=int(workspace.id),
                 tenant_key=tenant_key,
                 metadata_json=metadata,
             )
+            workspace.metadata_json = dict(metadata)
+            if hasattr(workspace, "tenant_id"):
+                workspace.tenant_id = tenant_key
 
         session = get_or_create_session(db, workspace.id)
         mirror = build_workspace_mirror(db, workspace, session=session)
@@ -138,7 +109,6 @@ def ensure_virtual_workspace(
         snapshot = {
             "workspace_id": workspace.id,
             "session_id": session.id,
-            "primary_file": metadata["virtual_primary_file"],
         }
         set_cached_workspace_state(scope_key, workspace.id, snapshot)
         if include_tree:
@@ -146,19 +116,20 @@ def ensure_virtual_workspace(
         return snapshot
     finally:
         set_active_workspace_tenant(None)
+        set_active_workspace_scope(None)
 
 
 def refresh_virtual_workspace(
     db: Session,
-    workspace: VFSDependenciesWorkspace,
-    runtime_seed: RuntimeSeed,
+    workspace: Any,
+    workspace_seed: WorkspaceSeed,
     *,
     include_tree: bool = True,
     tenant_id: str | None = None,
 ) -> dict[str, Any]:
     tenant_key = assert_workspace_tenant(workspace, tenant_id)
     scope_key = workspace_scope_for_db(db)
-    register_runtime_seed(int(workspace.id), tenant_key, runtime_seed)
+    register_runtime_seed(int(workspace.id), tenant_key, workspace_seed)
     set_active_workspace_tenant(tenant_key)
     set_active_workspace_scope(scope_key)
     try:
@@ -167,7 +138,7 @@ def refresh_virtual_workspace(
             tenant_key=tenant_key,
             scope_key=scope_key,
         )
-        session = _repositories.session.get_active_session(db, int(workspace.id), tenant_key)
+        session = _repositories().session.get_active_session(db, int(workspace.id), tenant_key)
         if session is None:
             delete_workspace_mirror(
                 int(workspace.id),
@@ -195,7 +166,6 @@ def refresh_virtual_workspace(
         snapshot = {
             "workspace_id": int(workspace.id),
             "session_id": int(session.id),
-            "primary_file": str(metadata.get("virtual_primary_file") or metadata.get("virtual_chapter_file") or ""),
         }
         set_cached_workspace_state(scope_key, int(workspace.id), snapshot)
         if include_tree:
@@ -203,6 +173,7 @@ def refresh_virtual_workspace(
         return snapshot
     finally:
         set_active_workspace_tenant(None)
+        set_active_workspace_scope(None)
 
 
 def _refresh_signature(mirror) -> dict[str, Any]:
@@ -214,23 +185,6 @@ def _refresh_signature(mirror) -> dict[str, Any]:
     payload.pop("checkpoint_revision", None)
     payload.pop("next_temp_id", None)
     return payload
-
-
-def sync_external_file_source(
-    db: Session,
-    *,
-    workspace_id: int,
-    parent_id: int,
-    source: Any,
-    sync_op: str,
-) -> str:
-    file_name = source.virtual_path.rsplit("/", 1)[-1]
-    content = source.read_text()
-    file_node = get_or_create_child_file(db, workspace_id, parent_id, file_name, content)
-    if get_node_content(db, file_node) != content and get_node_version(db, file_node) <= 1:
-        write_file(db, file_node, content, op=sync_op)
-    return source.virtual_path
-
 
 def normalize_workspace_path(raw_path: str, *, require_file: bool = False) -> str:
     cleaned = str(raw_path or "").strip()
@@ -271,7 +225,15 @@ def ensure_virtual_dir_path(db: Session, workspace_id: int, dir_path: str):
     return current
 
 
-def seed_workspace_file(db: Session, workspace_id: int, path: str, content: str, *, op: str) -> dict[str, Any]:
+def seed_workspace_file(
+    db: Session,
+    workspace_id: int,
+    path: str,
+    content: str,
+    *,
+    op: str,
+    overwrite_existing: bool = True,
+) -> dict[str, Any]:
     normalized = normalize_workspace_path(path, require_file=True)
     parent_path, _, name = normalized.rpartition("/")
     parent = ensure_virtual_dir_path(db, workspace_id, parent_path or "/")
@@ -285,7 +247,7 @@ def seed_workspace_file(db: Session, workspace_id: int, path: str, content: str,
         created = True
 
     version_no = get_node_version(db, node)
-    if not created and get_node_content(db, node) != content:
+    if overwrite_existing and not created and get_node_content(db, node) != content:
         version_no = write_file(db, node, content, op=op)
     return {
         "path": normalized,

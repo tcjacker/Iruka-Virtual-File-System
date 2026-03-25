@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from iruka_vfs.service_ops.access_mode import (
+from iruka_vfs.integrations.agent.access_mode import (
     assert_workspace_access_mode,
     get_workspace_access_mode,
     set_workspace_access_mode,
     workspace_access_mode_for_runtime,
 )
+from iruka_vfs.integrations.agent.shell import run_virtual_bash
 from iruka_vfs.service_ops.bootstrap import (
     ensure_virtual_dir_path,
     ensure_virtual_workspace,
     normalize_workspace_path,
     refresh_virtual_workspace,
     seed_workspace_file,
-    sync_external_file_source,
     workspace_access_mode_from_metadata,
 )
 from iruka_vfs.service_ops.file_api import (
@@ -22,7 +22,6 @@ from iruka_vfs.service_ops.file_api import (
     read_workspace_directory,
     read_workspace_file,
     resolve_target_path_for_write,
-    run_virtual_bash,
     write_workspace_file,
 )
 from iruka_vfs.service_ops.state import (
@@ -64,7 +63,6 @@ __all__ = [
     "seed_workspace_file",
     "set_cached_workspace_state",
     "set_workspace_access_mode",
-    "sync_external_file_source",
     "workspace_access_mode_for_runtime",
     "workspace_access_mode_from_metadata",
     "write_workspace_file",

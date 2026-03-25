@@ -86,10 +86,7 @@ class EphemeralRedisFlowTest(unittest.TestCase):
         runtime_seed = RuntimeSeed(
             runtime_key="runtime:e2e-401",
             tenant_id="test-tenant",
-            primary_file=None,
             workspace_files={"/workspace/files/demo.txt": "hello"},
-            context_files={"context.md": "ctx"},
-            skill_files={"skill.md": "skill"},
             metadata={},
         )
 
@@ -107,7 +104,7 @@ class EphemeralRedisFlowTest(unittest.TestCase):
             mode = self.access_mode.set_workspace_access_mode(
                 db,
                 workspace,
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 mode="agent",
                 tenant_id="test-tenant",
                 flush=False,
@@ -118,7 +115,7 @@ class EphemeralRedisFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "cd /workspace/files && pwd && ls && cat demo.txt",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(first["exit_code"], 0)
@@ -129,7 +126,7 @@ class EphemeralRedisFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "edit /workspace/files/demo.txt --find hello --replace hello-redis",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(second["exit_code"], 0)
@@ -139,7 +136,7 @@ class EphemeralRedisFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "cat /workspace/files/demo.txt",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(third["exit_code"], 0)
@@ -188,10 +185,7 @@ class EphemeralRedisFlowTest(unittest.TestCase):
         runtime_seed = RuntimeSeed(
             runtime_key="runtime:e2e-402",
             tenant_id="test-tenant",
-            primary_file=None,
             workspace_files={"/workspace/files/demo.txt": "hello"},
-            context_files={"context.md": "ctx"},
-            skill_files={"skill.md": "skill"},
             metadata={},
         )
 
@@ -201,7 +195,7 @@ class EphemeralRedisFlowTest(unittest.TestCase):
             self.access_mode.set_workspace_access_mode(
                 db,
                 workspace,
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 mode="agent",
                 tenant_id="test-tenant",
                 flush=False,
@@ -210,7 +204,7 @@ class EphemeralRedisFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "edit /workspace/files/demo.txt --find hello --replace flushed-redis",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             mirror = self.service_state.get_workspace_state_store().get_workspace_mirror(
@@ -235,6 +229,17 @@ class EphemeralRedisFlowTest(unittest.TestCase):
         )
         self.assertIsNotNone(refreshed)
         self.assertFalse(bool(refreshed.dirty_content_node_ids))
+
+    def test_redis_checkpoint_queue_round_trips_workspace_ref(self) -> None:
+        store = self.service_state.get_workspace_state_store()
+        workspace_ref = store.workspace_ref(
+            workspace_id=999,
+            tenant_key="test-tenant",
+            scope_key="scope-1",
+        )
+        store.enqueue_workspace_checkpoint(workspace_ref, due_at=123.0)
+        popped = store.pop_checkpoint(timeout_seconds=1)
+        self.assertEqual(popped, workspace_ref)
 
 
 if __name__ == "__main__":

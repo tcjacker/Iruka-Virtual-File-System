@@ -15,7 +15,6 @@ from iruka_vfs.constants import (
     VFS_CHECKPOINT_RETRY_BASE_SECONDS,
     VFS_CHECKPOINT_RETRY_MAX_SECONDS,
 )
-from iruka_vfs.file_sources import WritableFileSource
 from iruka_vfs.models import WorkspaceMirror
 from iruka_vfs.service_ops.state import get_workspace_state_store
 from iruka_vfs import runtime_state
@@ -143,6 +142,8 @@ def _confirm_flushed_snapshot_locked(
     snapshot: dict[str, object],
     remapped_ids: list[tuple[int, int]],
 ) -> None:
+    from iruka_vfs import workspace_mirror as mirror_api
+
     snapshot_revision = int(snapshot["snapshot_revision"])
     flushed_payloads = _remap_payload_node_ids(list(snapshot["dirty_payloads"]), remapped_ids)
     remap = {int(temp_id): int(real_id) for temp_id, real_id in remapped_ids}
@@ -154,19 +155,17 @@ def _confirm_flushed_snapshot_locked(
         if not node:
             continue
         node.id = real_id
-        if node.parent_id is not None and int(node.parent_id) == temp_id:
-            node.parent_id = real_id
+        if node.parent_id is not None:
+            node.parent_id = remap.get(int(node.parent_id), int(node.parent_id))
         current.nodes[real_id] = node
-        for child_ids in current.children_by_parent.values():
-            for idx, child_id in enumerate(child_ids):
-                if child_id == temp_id:
-                    child_ids[idx] = real_id
-        current.path_to_id = {
-            path: (real_id if node_id == temp_id else node_id)
-            for path, node_id in current.path_to_id.items()
-        }
         if current.cwd_node_id == temp_id:
             current.cwd_node_id = real_id
+
+    for node in current.nodes.values():
+        if node.parent_id is not None:
+            node.parent_id = remap.get(int(node.parent_id), int(node.parent_id))
+
+    mirror_api.rebuild_workspace_mirror_indexes_locked(current)
 
     for payload in flushed_payloads:
         node_id = int(payload["node_id"])
@@ -315,34 +314,53 @@ def flush_workspace_mirror(mirror: WorkspaceMirror | None, *, workspace_ref=None
         db = runtime_state.workspace_checkpoint_session_maker()
         try:
             remapped_ids: list[tuple[int, int]] = []
-            for payload in list(snapshot["dirty_payloads"]):
-                node_id = int(payload["node_id"])
-                if node_id > 0:
-                    mirror_api._repositories.node.update_node_content(
+            pending_payloads = [dict(item) for item in list(snapshot["dirty_payloads"])]
+            while pending_payloads:
+                next_round: list[dict[str, object]] = []
+                progress_made = False
+                for payload in pending_payloads:
+                    parent_id = payload["parent_id"]
+                    if parent_id is not None and int(parent_id) < 0:
+                        remapped_parent_id = next(
+                            (real_id for temp_id, real_id in remapped_ids if int(temp_id) == int(parent_id)),
+                            None,
+                        )
+                        if remapped_parent_id is None:
+                            next_round.append(payload)
+                            continue
+                        payload["parent_id"] = remapped_parent_id
+
+                    progress_made = True
+                    node_id = int(payload["node_id"])
+                    if node_id > 0:
+                        mirror_api._repositories.node.update_node_content(
+                            db,
+                            node_id=node_id,
+                            tenant_key=str(snapshot["tenant_key"]),
+                            parent_id=payload["parent_id"],
+                            name=payload["name"],
+                            node_type=payload["node_type"],
+                            content_text=payload["content_text"],
+                            version_no=payload["version_no"],
+                        )
+                        service._cache_metric_inc("flush_ok")
+                        continue
+
+                    row = mirror_api._repositories.node.create_node(
                         db,
-                        node_id=node_id,
                         tenant_key=str(snapshot["tenant_key"]),
+                        workspace_id=int(snapshot["workspace_id"]),
                         parent_id=payload["parent_id"],
                         name=payload["name"],
                         node_type=payload["node_type"],
                         content_text=payload["content_text"],
                         version_no=payload["version_no"],
                     )
+                    remapped_ids.append((node_id, int(row.id)))
                     service._cache_metric_inc("flush_ok")
-                    continue
-
-                row = mirror_api._repositories.node.create_node(
-                    db,
-                    tenant_key=str(snapshot["tenant_key"]),
-                    workspace_id=int(snapshot["workspace_id"]),
-                    parent_id=payload["parent_id"],
-                    name=payload["name"],
-                    node_type=payload["node_type"],
-                    content_text=payload["content_text"],
-                    version_no=payload["version_no"],
-                )
-                remapped_ids.append((node_id, int(row.id)))
-                service._cache_metric_inc("flush_ok")
+                if not progress_made:
+                    raise ValueError("flush could not remap temporary parent ids")
+                pending_payloads = next_round
 
             if bool(snapshot["session_dirty"]):
                 mirror_api._repositories.session.update_session_cwd(
@@ -359,23 +377,6 @@ def flush_workspace_mirror(mirror: WorkspaceMirror | None, *, workspace_ref=None
                     metadata_json=dict(snapshot["workspace_metadata"]),
                 )
             db.commit()
-            runtime_seed = service._get_registered_runtime_seed(int(snapshot["workspace_id"]), str(snapshot["tenant_key"]))
-            primary_file = runtime_seed.primary_file if runtime_seed else None
-            primary_file_path = str(
-                dict(snapshot["workspace_metadata"]).get("virtual_primary_file")
-                or dict(snapshot["workspace_metadata"]).get("virtual_chapter_file")
-                or ""
-            )
-            if (
-                primary_file is not None
-                and isinstance(primary_file, WritableFileSource)
-                and primary_file.virtual_path == primary_file_path
-                and primary_file.write_text is not None
-            ):
-                primary_node_id = mirror.path_to_id.get(primary_file_path)
-                primary_node = mirror.nodes.get(int(primary_node_id)) if primary_node_id is not None else None
-                if primary_node is not None:
-                    primary_file.write_text(str(primary_node.content_text or ""))
         except Exception as exc:
             db.rollback()
             service._cache_metric_inc("flush_error")

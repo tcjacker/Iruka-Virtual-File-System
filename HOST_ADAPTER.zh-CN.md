@@ -32,8 +32,7 @@
 
 1. 解析 `tenant_id`、`runtime_key`、源记录 id 等宿主上下文
 2. 为一个 agent 构建一个 workspace 对象
-3. 把一个可写宿主文件映射成 workspace 的 `primary_file`
-4. 把只读 context / skill 数据映射成 `context_files` 和 `skill_files`
+3. 把宿主内容物化到 `workspace_files`
 5. 在执行命令前调用 `workspace.ensure(db)`
 6. 对每条虚拟命令调用 `workspace.bash(db, "...")`
 7. 在 turn 结束或其他明确的持久化边界调用 `workspace.flush()`
@@ -43,24 +42,21 @@
 ## 推荐 API
 
 ```python
-from iruka_vfs import WritableFileSource, create_workspace
+from iruka_vfs import build_workspace_seed, create_workspace
 
 workspace = create_workspace(
     workspace=workspace_model,
     tenant_id=str(workspace_model.tenant_id),
-    runtime_key=str(workspace_model.runtime_key),
-    primary_file=WritableFileSource(
-        file_id=f"document:{document.id}",
-        virtual_path=f"/workspace/files/document_{document.id}.md",
-        read_text=lambda: document.body_text,
-        write_text=lambda text: save_document_body(document.id, text),
+    workspace_seed=build_workspace_seed(
+        runtime_key=str(workspace_model.runtime_key),
+        tenant_id=str(workspace_model.tenant_id),
+        workspace_files={
+            f"/workspace/files/document_{document.id}.md": document.body_text,
+            "/workspace/docs/brief.md": initial_brief_text,
+            "/workspace/docs/outline.md": outline_text,
+            "/workspace/docs/style.md": style_text,
+        },
     ),
-    workspace_files={
-        "/workspace/docs/brief.md": initial_brief_text,
-        "notes/host_seed.txt": "seeded by host adapter\n",
-    },
-    context_files={"outline.md": outline_text},
-    skill_files={"style.md": style_text},
 )
 
 workspace.ensure(db)
@@ -122,9 +118,8 @@ workspace.flush()
 典型文档场景下的映射关系：
 
 - host conversation/request -> 选择 runtime / workspace
-- host document/resource -> 一个可写 VFS 文件，例如 `/workspace/files/document_123.md`
-- host project state -> `/workspace/context/*.md`
-- host skills -> `/workspace/skills/*.md`
+- host document/resource -> 一个 VFS 文件，例如 `/workspace/files/document_123.md`
+- host project state -> `/workspace/docs/...` 下的辅助文件
 
 ## 最小输入要求
 
@@ -133,13 +128,7 @@ workspace.flush()
 - `workspace`
 - `runtime_key`
 - `tenant_id`
-- `primary_file`
-
-通常 `primary_file` 应使用 `WritableFileSource`，并提供：
-
-- `virtual_path`
-- `read_text()`
-- `write_text(text)`
+- `workspace_seed`
 
 ## 实践建议
 
@@ -147,7 +136,7 @@ workspace.flush()
 
 - workspace 查找
 - `create_workspace(...)` 构造
-- context / skill 文件映射
+- `workspace_files` 构造
 - turn 结束时的 `flush()`
 
 业务层只调用 adapter，不直接拼底层参数。

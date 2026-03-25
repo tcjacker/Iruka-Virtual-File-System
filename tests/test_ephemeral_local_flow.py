@@ -88,10 +88,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
         runtime_seed = RuntimeSeed(
             runtime_key=f"runtime:e2e-{workspace_id}",
             tenant_id="test-tenant",
-            primary_file=None,
             workspace_files={"/workspace/files/demo.txt": initial_text},
-            context_files={"context.md": "ctx"},
-            skill_files={"skill.md": "skill"},
             metadata={},
         )
         return workspace, runtime_seed
@@ -102,7 +99,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
         self.access_mode.set_workspace_access_mode(
             db,
             workspace,
-            runtime_seed=runtime_seed,
+            workspace_seed=runtime_seed,
             mode="agent",
             tenant_id="test-tenant",
             flush=False,
@@ -126,7 +123,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             mode = self.access_mode.set_workspace_access_mode(
                 db,
                 workspace,
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 mode="agent",
                 tenant_id="test-tenant",
                 flush=False,
@@ -137,7 +134,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "cd /workspace/files && pwd && ls && cat demo.txt",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(first["exit_code"], 0)
@@ -148,7 +145,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "edit /workspace/files/demo.txt --find hello --replace hello-world",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(second["exit_code"], 0)
@@ -158,7 +155,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "cat /workspace/files/demo.txt",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(third["exit_code"], 0)
@@ -209,7 +206,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.access_mode.set_workspace_access_mode(
                 db,
                 workspace,
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 mode="agent",
                 tenant_id="test-tenant",
                 flush=False,
@@ -218,7 +215,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "patch --path /workspace/files/demo.txt --find hello --replace patched",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(result["exit_code"], 0)
@@ -243,7 +240,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.access_mode.set_workspace_access_mode(
                 db,
                 workspace,
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 mode="agent",
                 tenant_id="test-tenant",
                 flush=False,
@@ -253,7 +250,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 f"patch --path /workspace/files/demo.txt --unified '{conflict_patch}'",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(result["exit_code"], 1)
@@ -269,6 +266,70 @@ class EphemeralLocalFlowTest(unittest.TestCase):
         self.assertEqual(file_node.content_text, "hello")
         self.assertEqual(int(file_node.version_no), 1)
 
+    def test_flush_remaps_nested_temp_nodes_to_real_parent_ids(self) -> None:
+        workspace, runtime_seed = self._make_workspace(304, initial_text="seed")
+
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.file_api.write_workspace_file(
+                db,
+                workspace,
+                "/workspace/generated/deep/file.txt",
+                "nested",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            scope_key = self.workspace_mirror.workspace_scope_for_db(db)
+            store = self.service_state.get_workspace_state_store()
+            mirror = store.get_workspace_mirror(304, tenant_key="test-tenant", scope_key=scope_key)
+            self.assertIsNotNone(mirror)
+
+            runtime_state = importlib.import_module("iruka_vfs.runtime_state")
+            runtime_state.workspace_checkpoint_session_maker = self.SessionLocal
+            self.assertTrue(self.checkpoint.flush_workspace_mirror(None, workspace_ref=store.workspace_ref(mirror=mirror)))
+
+            refreshed = store.get_workspace_mirror(304, tenant_key="test-tenant", scope_key=scope_key)
+            self.assertIsNotNone(refreshed)
+            dir_node_id = refreshed.path_to_id["/workspace/generated/deep"]
+            file_node_id = refreshed.path_to_id["/workspace/generated/deep/file.txt"]
+            self.assertGreater(int(dir_node_id), 0)
+            self.assertGreater(int(file_node_id), 0)
+            self.assertEqual(int(refreshed.nodes[file_node_id].parent_id), int(dir_node_id))
+
+    def test_ensure_does_not_overwrite_persisted_seeded_file_content(self) -> None:
+        workspace, runtime_seed = self._make_workspace(305, initial_text="hello")
+
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.file_api.write_workspace_file(
+                db,
+                workspace,
+                "/workspace/files/demo.txt",
+                "host-updated",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            scope_key = self.workspace_mirror.workspace_scope_for_db(db)
+            store = self.service_state.get_workspace_state_store()
+            mirror = store.get_workspace_mirror(305, tenant_key="test-tenant", scope_key=scope_key)
+
+            runtime_state = importlib.import_module("iruka_vfs.runtime_state")
+            runtime_state.workspace_checkpoint_session_maker = self.SessionLocal
+            self.assertTrue(self.checkpoint.flush_workspace_mirror(None, workspace_ref=store.workspace_ref(mirror=mirror)))
+
+            store.delete_workspace_mirror(305, tenant_key="test-tenant", scope_key=scope_key)
+            self.service_state.clear_cached_workspace_state(scope_key, 305)
+
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            content = self.file_api.read_workspace_file(
+                db,
+                workspace,
+                "/workspace/files/demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(content, "host-updated")
+
     def test_patch_requires_path(self) -> None:
         with self.SessionLocal() as db:
             workspace, runtime_seed = self._prepare_agent_workspace(db, 305)
@@ -276,7 +337,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "patch",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(result["exit_code"], 1)
@@ -289,7 +350,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "patch --path /workspace/files/demo.txt --find hello",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(result["exit_code"], 1)
@@ -302,7 +363,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "patch --path /workspace/files/missing.txt --find hello --replace patched",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(result["exit_code"], 1)
@@ -316,7 +377,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "patch --path /workspace/files/demo.txt --find absent --replace patched",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(result["exit_code"], 1)
@@ -342,7 +403,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                     db,
                     workspace,
                     "cat /workspace/files/demo.txt",
-                    runtime_seed=runtime_seed,
+                    workspace_seed=runtime_seed,
                     tenant_id="test-tenant",
                 )
 
@@ -354,14 +415,14 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "/workspace/files/demo.txt",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             directory = self.file_api.read_workspace_directory(
                 db,
                 workspace,
                 "/workspace/files",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
 
@@ -374,7 +435,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                     workspace,
                     "/workspace/files/demo.txt",
                     "host-write",
-                    runtime_seed=runtime_seed,
+                    workspace_seed=runtime_seed,
                     tenant_id="test-tenant",
                 )
 
@@ -386,7 +447,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "edit /workspace/files/demo.txt --find hello --replace flushed",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             mirror = self.service_state.get_workspace_state_store().get_workspace_mirror(
@@ -419,7 +480,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "doesnotexist arg1",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(result["exit_code"], 127)
@@ -432,7 +493,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "echo hello >",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(result["exit_code"], 2)
@@ -445,7 +506,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "echo hello > /workspace/files",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(result["exit_code"], 1)
@@ -458,7 +519,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "echo hello > /workspace/missing/demo.txt",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(result["exit_code"], 1)
@@ -474,7 +535,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 db,
                 workspace,
                 "echo hello > /tmp/out.txt",
-                runtime_seed=runtime_seed,
+                workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
             self.assertEqual(result["exit_code"], 1)

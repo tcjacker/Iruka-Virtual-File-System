@@ -449,10 +449,10 @@
       const samples = [
         "cat /workspace/files/demo_file.md",
         "edit /workspace/files/demo_file.md --find MARKER_000 --replace VERIFIED_000",
-        "echo local-note > /workspace/notes/check.txt",
+        "echo local-note > /workspace/docs/check.txt",
         "rg VERIFIED /workspace",
         "wc /workspace/files/demo_file.md",
-        "cat /workspace/notes/check.txt"
+        "cat /workspace/docs/check.txt"
       ];
 
       const els = {
@@ -557,7 +557,7 @@
         els.workspaceId.textContent = `workspace: ${payload.workspace_id}`;
         els.runtimeKey.textContent = `runtime: ${payload.runtime_key}`;
         els.runtimeProfile.textContent = `profile: ${payload.runtime_profile || "-"}`;
-        els.primaryFile.textContent = `primary file: ${payload.primary_file || "-"}`;
+        els.primaryFile.textContent = "demo file: /workspace/files/demo_file.md";
         if (Array.isArray(payload.available_runtime_profiles)) {
           els.runtimeProfileSelect.innerHTML = "";
           payload.available_runtime_profiles.forEach((profile) => {
@@ -571,7 +571,7 @@
           els.runtimeProfileSelect.value = payload.runtime_profile;
         }
         els.tree.textContent = payload.tree || "(empty)";
-        els.host.textContent = payload.host_text || "";
+        els.host.textContent = payload.demo_file_text || "";
         renderBackend(payload);
         renderMetrics(payload.cache_metrics || {}, payload.checkpoint_metrics || {});
         renderHistory(payload.recent_commands || []);

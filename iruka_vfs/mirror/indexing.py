@@ -43,7 +43,10 @@ def build_workspace_mirror(
 ) -> WorkspaceMirror:
     from iruka_vfs import workspace_mirror as mirror_api
 
-    nodes = mirror_api._repositories.node.list_workspace_nodes(db, workspace.id, mirror_api.workspace_tenant_key(workspace))
+    tenant_key = mirror_api.workspace_tenant_key(workspace)
+    latest_workspace = mirror_api._repositories.workspace.get_workspace(db, int(workspace.id), tenant_key)
+    workspace_row = latest_workspace or workspace
+    nodes = mirror_api._repositories.node.list_workspace_nodes(db, workspace.id, tenant_key)
     cloned: dict[int, object] = {}
     for source in nodes:
         cloned_node = mirror_api.clone_node(source)
@@ -52,7 +55,7 @@ def build_workspace_mirror(
     if root is None:
         raise ValueError(f"virtual root not found for workspace {workspace.id}")
     mirror = WorkspaceMirror(
-        tenant_key=mirror_api.workspace_tenant_key(workspace),
+        tenant_key=mirror_api.workspace_tenant_key(workspace_row),
         scope_key=mirror_api.workspace_scope_for_db(db),
         workspace_id=int(workspace.id),
         root_id=int(root.id),
@@ -61,10 +64,9 @@ def build_workspace_mirror(
         nodes=cloned,
         path_to_id={},
         children_by_parent={},
-        workspace_metadata=dict(workspace.metadata_json or {}),
+        workspace_metadata=dict(getattr(workspace_row, "metadata_json", {}) or {}),
         revision=1,
         checkpoint_revision=1,
     )
     rebuild_workspace_mirror_indexes_locked(mirror)
     return mirror
-

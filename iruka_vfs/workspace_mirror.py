@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from iruka_vfs.dependencies import get_vfs_dependencies
-from iruka_vfs.dependency_resolution import resolve_vfs_repositories
 from iruka_vfs.mirror.checkpoint import (
     ensure_workspace_checkpoint_worker,
     enqueue_workspace_checkpoint,
@@ -41,8 +39,23 @@ from iruka_vfs.mirror.serialization import (
     set_workspace_mirror,
     workspace_lock,
 )
-_dependencies = get_vfs_dependencies()
-_repositories = resolve_vfs_repositories()
-settings = _dependencies.settings
-AgentWorkspace = _dependencies.AgentWorkspace
-VirtualFileNode = _dependencies.VirtualFileNode
+
+
+def __getattr__(name: str):
+    if name == "_dependencies":
+        from iruka_vfs.dependencies import get_vfs_dependencies
+
+        return get_vfs_dependencies()
+    if name == "_repositories":
+        from iruka_vfs.dependency_resolution import resolve_vfs_repositories
+
+        return resolve_vfs_repositories()
+    if name == "settings":
+        from iruka_vfs.dependencies import get_vfs_dependencies
+
+        return get_vfs_dependencies().settings
+    if name in {"AgentWorkspace", "VirtualFileNode"}:
+        from iruka_vfs.dependencies import get_vfs_dependencies
+
+        return getattr(get_vfs_dependencies(), name)
+    raise AttributeError(name)

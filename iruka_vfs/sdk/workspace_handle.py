@@ -5,13 +5,13 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from iruka_vfs.runtime_seed import RuntimeSeed
+from iruka_vfs.runtime_seed import WorkspaceSeed
 
 
 @dataclass(frozen=True)
 class VirtualWorkspace:
     workspace: Any
-    runtime_seed: RuntimeSeed
+    workspace_seed: WorkspaceSeed
     tenant_id: str
 
     @property
@@ -23,16 +23,14 @@ class VirtualWorkspace:
         db: Session,
         *,
         include_tree: bool = True,
-        available_skills: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         from iruka_vfs import service
 
         return service.ensure_virtual_workspace(
             db,
             self.workspace,
-            self.runtime_seed,
+            self.workspace_seed,
             include_tree=include_tree,
-            available_skills=available_skills,
             tenant_id=self.tenant_id,
         )
 
@@ -43,7 +41,7 @@ class VirtualWorkspace:
             db,
             self.workspace,
             raw_cmd,
-            runtime_seed=self.runtime_seed,
+            workspace_seed=self.workspace_seed,
             tenant_id=self.tenant_id,
         )
 
@@ -53,7 +51,7 @@ class VirtualWorkspace:
         return service.refresh_virtual_workspace(
             db,
             self.workspace,
-            self.runtime_seed,
+            self.workspace_seed,
             include_tree=include_tree,
             tenant_id=self.tenant_id,
         )
@@ -69,7 +67,7 @@ class VirtualWorkspace:
         return service.set_workspace_access_mode(
             db,
             self.workspace,
-            runtime_seed=self.runtime_seed,
+            workspace_seed=self.workspace_seed,
             mode="agent",
             tenant_id=self.tenant_id,
             flush=flush,
@@ -81,7 +79,7 @@ class VirtualWorkspace:
         return service.set_workspace_access_mode(
             db,
             self.workspace,
-            runtime_seed=self.runtime_seed,
+            workspace_seed=self.workspace_seed,
             mode="host",
             tenant_id=self.tenant_id,
             flush=flush,
@@ -93,7 +91,7 @@ class VirtualWorkspace:
         return service.get_workspace_access_mode(
             db,
             self.workspace,
-            runtime_seed=self.runtime_seed,
+            workspace_seed=self.workspace_seed,
             tenant_id=self.tenant_id,
         )
 
@@ -105,7 +103,7 @@ class VirtualWorkspace:
             self.workspace,
             path,
             content,
-            runtime_seed=self.runtime_seed,
+            workspace_seed=self.workspace_seed,
             tenant_id=self.tenant_id,
         )
 
@@ -116,7 +114,7 @@ class VirtualWorkspace:
             db,
             self.workspace,
             path,
-            runtime_seed=self.runtime_seed,
+            workspace_seed=self.workspace_seed,
             tenant_id=self.tenant_id,
         )
 
@@ -127,7 +125,7 @@ class VirtualWorkspace:
             db,
             self.workspace,
             path,
-            runtime_seed=self.runtime_seed,
+            workspace_seed=self.workspace_seed,
             tenant_id=self.tenant_id,
             recursive=recursive,
         )
@@ -135,3 +133,7 @@ class VirtualWorkspace:
     def tree(self, db: Session) -> str:
         snapshot = self.ensure(db, include_tree=True)
         return str(snapshot.get("tree") or "")
+
+    @property
+    def runtime_seed(self) -> WorkspaceSeed:
+        return self.workspace_seed
