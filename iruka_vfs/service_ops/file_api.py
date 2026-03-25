@@ -16,57 +16,29 @@ from iruka_vfs.runtime_seed import WorkspaceSeed
 from iruka_vfs.integrations.agent.access_mode import assert_workspace_access_mode, assert_workspace_readable
 from iruka_vfs.integrations.agent.shell import run_virtual_bash
 from iruka_vfs.service_ops.bootstrap import ensure_virtual_workspace, normalize_workspace_path, seed_workspace_file
-from iruka_vfs.service_ops.state import (
-    get_workspace_state_store,
-)
 from iruka_vfs.workspace_mirror import (
     active_workspace_scope,
     assert_workspace_tenant,
     effective_tenant_key,
-    enqueue_workspace_checkpoint,
     flush_workspace_mirror,
-    get_workspace_mirror,
-    mirror_has_dirty_state,
     set_active_workspace_scope,
     set_active_workspace_tenant,
-    workspace_lock,
     workspace_scope_for_db,
 )
+from iruka_vfs.mirror.checkpoint import resolve_workspace_ref_for_flush, run_checkpoint_cycle
 
 
 def flush_workspace(workspace_id: int, tenant_id: str | None = None) -> bool:
     tenant_key = effective_tenant_key(tenant_id)
-    store = get_workspace_state_store()
     scope_key = active_workspace_scope()
-    mirror = None
-    if scope_key:
-        mirror = store.get_workspace_mirror(
-            workspace_id,
-            tenant_key=tenant_key,
-            scope_key=scope_key,
-        )
-    if mirror is None:
-        mirror = store.get_workspace_mirror(workspace_id, tenant_key=tenant_key)
-    if not mirror:
+    workspace_ref = resolve_workspace_ref_for_flush(
+        workspace_id,
+        tenant_key=tenant_key,
+        scope_key=scope_key,
+    )
+    if workspace_ref is None:
         return True
-    workspace_ref = store.workspace_ref(mirror=mirror)
-    lock = store.workspace_lock(workspace_ref=workspace_ref)
-    if not lock.acquire(blocking=True):
-        return False
-    try:
-        current = store.load_workspace_mirror(workspace_ref)
-        if not current:
-            return True
-    finally:
-        try:
-            lock.release()
-        except Exception:
-            pass
-    ok = flush_workspace_mirror(None, workspace_ref=workspace_ref)
-    store.clear_checkpoint_schedule(workspace_ref)
-    current = store.load_workspace_mirror(workspace_ref)
-    if current and mirror_has_dirty_state(current):
-        enqueue_workspace_checkpoint(workspace_ref)
+    ok, _ = run_checkpoint_cycle(workspace_ref)
     return ok
 
 

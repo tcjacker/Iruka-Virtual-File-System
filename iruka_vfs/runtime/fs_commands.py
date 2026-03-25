@@ -26,14 +26,12 @@ def exec_touch(db: Session, session, args: list[str]) -> VirtualCommandResult:
         if node:
             if node.node_type != "file":
                 return VirtualCommandResult("", f"touch: cannot touch '{raw_path}': Not a file", 1, {})
-            mirror = service._get_workspace_mirror(session.workspace_id, tenant_key=getattr(session, "tenant_id", None))
-            if mirror:
-                with mirror.lock:
-                    mirror_node = mirror.nodes.get(int(node.id), node)
-                    mirror_node.updated_at = datetime.utcnow()
-                    mirror.dirty_content_node_ids.add(int(mirror_node.id))
-                    mirror.revision += 1
-            else:
+            updated = service._mutate_workspace_mirror(
+                session.workspace_id,
+                tenant_key=getattr(session, "tenant_id", None),
+                mutate=lambda mirror: _mutate_touch_existing_file(mirror, node),
+            )
+            if updated is None:
                 node.updated_at = datetime.utcnow()
                 service._repositories.node.touch_node(db, node=node)
             existing.append(service._node_path(db, node))
@@ -51,6 +49,14 @@ def exec_touch(db: Session, session, args: list[str]) -> VirtualCommandResult:
     if existing:
         summary.append(f"existing={len(existing)}")
     return VirtualCommandResult("touch " + ", ".join(summary or ["ok"]), "", 0, {"created": created, "existing": existing})
+
+
+def _mutate_touch_existing_file(mirror, node):
+    mirror_node = mirror.nodes.get(int(node.id), node)
+    mirror_node.updated_at = datetime.utcnow()
+    mirror.dirty_content_node_ids.add(int(mirror_node.id))
+    mirror.revision += 1
+    return True, True
 
 
 def exec_mkdir(db: Session, session, args: list[str]) -> VirtualCommandResult:

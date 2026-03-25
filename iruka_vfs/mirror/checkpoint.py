@@ -71,6 +71,27 @@ def enqueue_workspace_checkpoint(workspace_ref, *, due_at: float | None = None, 
     get_workspace_state_store().enqueue_workspace_checkpoint(workspace_ref, due_at=scheduled_at, force=force)
 
 
+def resolve_workspace_ref_for_flush(
+    workspace_id: int,
+    *,
+    tenant_key: str,
+    scope_key: str | None = None,
+):
+    store = get_workspace_state_store()
+    mirror = None
+    if scope_key:
+        mirror = store.get_workspace_mirror(
+            workspace_id,
+            tenant_key=tenant_key,
+            scope_key=scope_key,
+        )
+    if mirror is None:
+        mirror = store.get_workspace_mirror(workspace_id, tenant_key=tenant_key)
+    if mirror is None:
+        return None
+    return store.workspace_ref(mirror=mirror)
+
+
 def _node_matches_payload(node, payload: dict[str, object]) -> bool:
     if node is None:
         return False
@@ -233,14 +254,10 @@ def workspace_checkpoint_worker() -> None:
                     store.requeue_checkpoint(workspace_ref)
                     service._cache_metric_inc("checkpoint_requeue")
                     continue
-            ok = flush_workspace_mirror(None, workspace_ref=workspace_ref)
-            store.clear_checkpoint_schedule(workspace_ref)
-            current = store.load_workspace_mirror(workspace_ref)
-            if current:
-                if mirror_has_dirty_state(current):
-                    enqueue_workspace_checkpoint(workspace_ref)
-                    service._cache_metric_inc("checkpoint_requeue")
-                    continue
+            ok, has_more_dirty = run_checkpoint_cycle(workspace_ref)
+            if has_more_dirty:
+                service._cache_metric_inc("checkpoint_requeue")
+                continue
             if not ok:
                 error_payload = store.get_error_payload(workspace_ref) or {"error_message": "flush returned false"}
                 dead_lettered, failure_count = _record_checkpoint_failure(
@@ -286,6 +303,17 @@ def workspace_checkpoint_worker() -> None:
             service._cache_metric_inc("checkpoint_retry")
 
 
+def run_checkpoint_cycle(workspace_ref) -> tuple[bool, bool]:
+    store = get_workspace_state_store()
+    ok = flush_workspace_mirror(None, workspace_ref=workspace_ref)
+    store.clear_checkpoint_schedule(workspace_ref)
+    current = store.load_workspace_mirror(workspace_ref)
+    has_more_dirty = bool(current and mirror_has_dirty_state(current))
+    if has_more_dirty:
+        enqueue_workspace_checkpoint(workspace_ref)
+    return ok, has_more_dirty
+
+
 def flush_workspace_mirror(mirror: WorkspaceMirror | None, *, workspace_ref=None) -> bool:
     from iruka_vfs import service
     from iruka_vfs import workspace_mirror as mirror_api
@@ -295,14 +323,11 @@ def flush_workspace_mirror(mirror: WorkspaceMirror | None, *, workspace_ref=None
 
     store = get_workspace_state_store()
     resolved_ref = workspace_ref or store.workspace_ref(mirror=mirror)
-    if mirror is None:
-        mirror = store.load_workspace_mirror(resolved_ref)
-        if not mirror:
-            store.clear_workspace_dirty(resolved_ref)
-            return True
-    lock = store.workspace_lock(mirror=mirror, workspace_ref=resolved_ref)
-    if not lock.acquire(blocking=True):
-        return False
+    transaction = _load_checkpoint_transaction_context(store, mirror=mirror, workspace_ref=resolved_ref)
+    if transaction is None:
+        return True
+    mirror = transaction["mirror"]
+    lock = transaction["lock"]
     try:
         with mirror.lock:
             snapshot = _snapshot_dirty_batch_locked(mirror)
@@ -411,3 +436,22 @@ def flush_workspace_mirror(mirror: WorkspaceMirror | None, *, workspace_ref=None
         except Exception:
             pass
     return True
+
+
+def _load_checkpoint_transaction_context(store, *, mirror: WorkspaceMirror | None, workspace_ref):
+    current = mirror if mirror is not None else store.load_workspace_mirror(workspace_ref)
+    if not current:
+        store.clear_workspace_dirty(workspace_ref)
+        return None
+    lock = store.workspace_lock(mirror=current, workspace_ref=workspace_ref)
+    if not lock.acquire(blocking=True):
+        return None
+    current = store.load_workspace_mirror(workspace_ref)
+    if not current:
+        try:
+            lock.release()
+        except Exception:
+            pass
+        store.clear_workspace_dirty(workspace_ref)
+        return None
+    return {"mirror": current, "lock": lock}

@@ -15,6 +15,11 @@ The runtime is split into two layers:
 - `VFSRepositories`
   The persistence layer. It owns durable reads and writes for workspaces, sessions, nodes, and command logs.
 
+Backend semantics:
+
+- In `ephemeral-local`, the in-process mirror object is the runtime state itself.
+- In Redis-backed profiles, Redis is the runtime source of truth and the in-process mirror object is only a short-lived transaction-local working object.
+
 Profile mapping:
 
 | Profile | WorkspaceStateStore | VFSRepositories | Typical Use |
@@ -163,6 +168,17 @@ ok = workspace_handle.flush()
 print("flush ok:", ok)
 ```
 
+Current flush call path:
+
+```text
+workspace.flush()
+  -> service.flush_workspace(...)
+  -> service_ops.file_api.flush_workspace(...)
+  -> mirror.checkpoint.resolve_workspace_ref_for_flush(...)
+  -> mirror.checkpoint.run_checkpoint_cycle(...)
+  -> mirror.checkpoint.flush_workspace_mirror(...)
+```
+
 ### 4.6 Refresh the Workspace Mirror
 
 Use `refresh(...)` when you want to discard the current runtime mirror and rebuild from the database.
@@ -209,6 +225,19 @@ workspace.enter_host_mode(db)
 workspace.write_file(db, "/workspace/files/demo.md", "host-side update")
 workspace.flush()
 ```
+
+### 4.8 Runtime Transaction Semantics
+
+Current internal behavior is organized around two helpers:
+
+- one workspace transaction helper around a full command chain
+- one checkpoint-cycle helper around one flush cycle
+
+In practice this means:
+
+- in Redis-backed profiles, file/session/cwd mutations are only considered successful after the runtime state has been written back to Redis
+- reads in Redis-backed profiles resolve from Redis-backed runtime state
+- `workspace.flush()` resolves the current workspace ref first, then runs one checkpoint cycle
 
 ## 5. Runtime Profiles
 

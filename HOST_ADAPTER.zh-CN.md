@@ -86,12 +86,15 @@ workspace.ensure(db)
 
 workspace.bash(db, "...")
   -> service.run_virtual_bash(...)
-  -> service_ops.file_api.run_virtual_bash(...)
+  -> integrations.agent.shell.run_virtual_bash(...)
+  -> mirror.mutation.execute_workspace_mirror_transaction(...)
   -> runtime.executor.run_command_chain(...)
 
 workspace.flush()
   -> service.flush_workspace(...)
   -> service_ops.file_api.flush_workspace(...)
+  -> mirror.checkpoint.resolve_workspace_ref_for_flush(...)
+  -> mirror.checkpoint.run_checkpoint_cycle(...)
   -> mirror.checkpoint.flush_workspace_mirror(...)
 ```
 
@@ -110,6 +113,7 @@ workspace.flush()
 - 调用 `workspace.bash(db, "...")` 之前先切到 `agent` 模式
 - 需要宿主直接读写文件前，先切回 `host` 模式
 - 把 `workspace.flush()` 作为显式的持久化动作
+- 在 Redis profile 下，把 Redis 视为运行态唯一事实来源，把进程内 mirror 对象视为事务内的临时工作对象
 
 这样可以在复用 Redis workspace 状态的同时，避免 stale session 和跨请求运行时对象带来的问题。
 

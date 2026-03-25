@@ -123,12 +123,15 @@ create_workspace(...)
 
 VirtualWorkspace.bash(...)
   -> service.run_virtual_bash(...)
-  -> service_ops.file_api.run_virtual_bash(...)
+  -> integrations.agent.shell.run_virtual_bash(...)
+  -> mirror.mutation.execute_workspace_mirror_transaction(...)
   -> runtime.executor.run_command_chain(...)
 
 VirtualWorkspace.flush()
   -> service.flush_workspace(...)
   -> service_ops.file_api.flush_workspace(...)
+  -> mirror.checkpoint.resolve_workspace_ref_for_flush(...)
+  -> mirror.checkpoint.run_checkpoint_cycle(...)
   -> mirror.checkpoint.flush_workspace_mirror(...)
 ```
 
@@ -164,6 +167,8 @@ workspace.flush()
 This facade is intentionally lightweight. It can be reused across turns for the same agent/workspace identity, but it should not be used for concurrent command execution.
 
 `create_workspace(...)` takes a generic `workspace_seed`. Build it with `build_workspace_seed(...)` and put all initial files into `workspace_files`.
+
+In Redis-backed profiles, Redis is the runtime source of truth. In-process mirror objects are only short-lived working objects inside one transaction or command chain.
 
 ## Host File API
 

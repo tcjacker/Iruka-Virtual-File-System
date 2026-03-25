@@ -28,13 +28,10 @@ from iruka_vfs.service_ops.state import (
 from iruka_vfs.pathing import node_path
 from iruka_vfs.workspace_mirror import (
     assert_workspace_tenant,
-    get_workspace_mirror,
     mirror_has_dirty_state,
     set_active_workspace_mirror,
     set_active_workspace_scope,
     set_active_workspace_tenant,
-    set_workspace_mirror,
-    workspace_lock,
     workspace_scope_for_db,
     ensure_workspace_checkpoint_worker,
 )
@@ -61,6 +58,8 @@ def run_virtual_bash(
     workspace_seed: WorkspaceSeed,
     tenant_id: str | None = None,
 ) -> dict[str, Any]:
+    from iruka_vfs import service
+
     scope_key = workspace_scope_for_db(db)
     try:
         tenant_key = assert_workspace_tenant(workspace, tenant_id)
@@ -78,49 +77,15 @@ def run_virtual_bash(
             required_mode=VFS_ACCESS_MODE_AGENT,
             scope_key=scope_key,
         )
-        initial_mirror = get_workspace_mirror(workspace.id, tenant_key=tenant_key, scope_key=scope_key)
-        if not initial_mirror:
+        transaction = _execute_virtual_bash_transaction(service, db, workspace, tenant_key, scope_key, raw_cmd)
+        if transaction is None:
             raise ValueError(f"workspace mirror missing for workspace {workspace.id}")
-        lock = workspace_lock(initial_mirror)
-        if not lock.acquire(blocking=True):
-            raise TimeoutError(f"failed to acquire workspace lock: {workspace.id}")
-        try:
-            mirror = get_workspace_mirror(workspace.id, tenant_key=tenant_key, scope_key=scope_key)
-            if not mirror:
-                raise ValueError(f"workspace mirror missing for workspace {workspace.id}")
-            session = _session_model()(
-                id=int(mirror.session_id),
-                tenant_id=tenant_key,
-                workspace_id=workspace.id,
-                cwd_node_id=int(mirror.cwd_node_id),
-                env_json={"PWD": VFS_ROOT},
-                status="active",
-            )
-            started_at = datetime.utcnow()
-            set_active_workspace_tenant(tenant_key)
-            set_active_workspace_scope(mirror.scope_key)
-            set_active_workspace_mirror(mirror)
-            original_cwd_node_id = int(mirror.cwd_node_id)
-            original_revision = int(mirror.revision)
-            result = run_command_chain(db, session, raw_cmd)
-            next_cwd_node_id = int(session.cwd_node_id or mirror.cwd_node_id)
-            if next_cwd_node_id != original_cwd_node_id:
-                mirror.cwd_node_id = next_cwd_node_id
-                mirror.dirty_session = True
-                mirror.revision += 1
-            if int(mirror.revision) != original_revision or mirror_has_dirty_state(mirror):
-                set_workspace_mirror(mirror)
-            cwd_node = mirror.nodes.get(int(mirror.cwd_node_id)) or must_get_node(db, int(mirror.cwd_node_id))
-            cwd_path = node_path(db, cwd_node)
-            ended_at = datetime.utcnow()
-        finally:
-            set_active_workspace_mirror(None)
-            set_active_workspace_tenant(None)
-            set_active_workspace_scope(None)
-            try:
-                lock.release()
-            except Exception:
-                pass
+        mirror = transaction["mirror"]
+        session = transaction["session"]
+        result = transaction["result"]
+        cwd_path = transaction["cwd_path"]
+        started_at = transaction["started_at"]
+        ended_at = transaction["ended_at"]
         log_stdout, stdout_meta = truncate_for_log(result.stdout, VFS_COMMAND_LOG_MAX_STDOUT_CHARS)
         log_stderr, stderr_meta = truncate_for_log(result.stderr, VFS_COMMAND_LOG_MAX_STDERR_CHARS)
         log_artifacts = prepare_log_artifacts(
@@ -152,6 +117,7 @@ def run_virtual_bash(
         db.rollback()
         raise
     finally:
+        set_active_workspace_mirror(None)
         set_active_workspace_tenant(None)
         set_active_workspace_scope(None)
 
@@ -164,6 +130,66 @@ def run_virtual_bash(
         "artifacts": result.artifacts,
         "cwd": cwd_path,
     }
+
+
+def _execute_virtual_bash_transaction(service, db: Session, workspace: Any, tenant_key: str, scope_key: str | None, raw_cmd: str):
+    from iruka_vfs.service_ops.state import workspace_state_uses_redis
+
+    redis_runtime = workspace_state_uses_redis()
+
+    def execute(mirror, _workspace_ref):
+        session = _session_model()(
+            id=int(mirror.session_id),
+            tenant_id=tenant_key,
+            workspace_id=workspace.id,
+            cwd_node_id=int(mirror.cwd_node_id),
+            env_json={"PWD": VFS_ROOT},
+            status="active",
+        )
+        started_at = datetime.utcnow()
+        set_active_workspace_tenant(tenant_key)
+        set_active_workspace_scope(mirror.scope_key)
+        if not redis_runtime:
+            set_active_workspace_mirror(mirror)
+        original_cwd_node_id = int(mirror.cwd_node_id)
+        original_revision = int(mirror.revision)
+        result = run_command_chain(db, session, raw_cmd)
+        next_cwd_node_id = int(session.cwd_node_id or mirror.cwd_node_id)
+        if redis_runtime:
+            current = service._get_workspace_mirror_api(workspace.id, tenant_key=tenant_key, scope_key=scope_key)
+            if not current:
+                raise ValueError(f"workspace mirror missing for workspace {workspace.id}")
+            if next_cwd_node_id != int(current.cwd_node_id):
+                current.cwd_node_id = next_cwd_node_id
+                current.dirty_session = True
+                current.revision += 1
+            if int(current.revision) != int(mirror.revision) or mirror_has_dirty_state(current):
+                service._set_workspace_mirror_api(current)
+            cwd_source = current
+        else:
+            if next_cwd_node_id != original_cwd_node_id:
+                mirror.cwd_node_id = next_cwd_node_id
+                mirror.dirty_session = True
+                mirror.revision += 1
+            if int(mirror.revision) != original_revision or mirror_has_dirty_state(mirror):
+                service._set_workspace_mirror_api(mirror)
+            cwd_source = mirror
+        cwd_node = cwd_source.nodes.get(int(cwd_source.cwd_node_id)) or must_get_node(db, int(cwd_source.cwd_node_id))
+        return {
+            "mirror": mirror,
+            "session": session,
+            "result": result,
+            "cwd_path": node_path(db, cwd_node),
+            "started_at": started_at,
+            "ended_at": datetime.utcnow(),
+        }
+
+    return service._execute_workspace_mirror_transaction(
+        int(workspace.id),
+        tenant_key=tenant_key,
+        scope_key=scope_key,
+        execute=execute,
+    )
 
 
 __all__ = ["run_virtual_bash"]

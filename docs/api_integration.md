@@ -15,6 +15,11 @@
 - `VFSRepositories`
   持久化层，负责 workspace/session/node/command_log 的落库或内存实现。
 
+backend 语义补充：
+
+- `ephemeral-local` 下，进程内 mirror 对象本身就是运行态状态。
+- Redis profile 下，Redis 是运行态唯一事实来源，进程内 mirror 对象只是单次事务里的短生命周期工作对象。
+
 三种 profile 的映射关系如下：
 
 | Profile | WorkspaceStateStore | VFSRepositories | 适用场景 |
@@ -224,6 +229,17 @@ ok = workspace_handle.flush()
 print("flush ok:", ok)
 ```
 
+当前 flush 调用链：
+
+```text
+workspace.flush()
+  -> service.flush_workspace(...)
+  -> service_ops.file_api.flush_workspace(...)
+  -> mirror.checkpoint.resolve_workspace_ref_for_flush(...)
+  -> mirror.checkpoint.run_checkpoint_cycle(...)
+  -> mirror.checkpoint.flush_workspace_mirror(...)
+```
+
 ### 4.6 强制刷新 workspace mirror
 
 如果你怀疑 Redis / 本地缓存里的 workspace mirror 已经过期，或者已经和数据库不一致，可以显式调用：
@@ -270,6 +286,19 @@ workspace.enter_host_mode(db)
 workspace.write_file(db, "/workspace/files/demo.md", "host-side update")
 workspace.flush()
 ```
+
+### 4.8 运行时事务语义
+
+当前内部主要通过两层 helper 收口：
+
+- 整条命令链的 workspace 事务 helper
+- 单次 flush 的 checkpoint cycle helper
+
+接入语义上可以理解为：
+
+- Redis profile 下，文件/cwd/session 等运行态修改，只有成功写回 Redis 后才算成功
+- Redis profile 下，读取以 Redis 中的运行态为准
+- `workspace.flush()` 会先解析当前 workspace ref，再执行一轮 checkpoint cycle
 
 ## 5. 三种模式示例
 

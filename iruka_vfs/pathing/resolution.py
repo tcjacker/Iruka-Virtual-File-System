@@ -40,9 +40,12 @@ def resolve_parent_for_create(
 
 def resolve_path(db: Session, workspace_id: int, cwd_node_id: int, path: str) -> Any | None:
     from iruka_vfs import service
+    from iruka_vfs.service_ops.state import workspace_state_uses_redis
 
     tenant_key = service._effective_tenant_key()
-    mirror = service._get_workspace_mirror(workspace_id, tenant_key=tenant_key)
+    mirror = None if workspace_state_uses_redis() else service._get_workspace_mirror(workspace_id, tenant_key=tenant_key)
+    if mirror is None:
+        mirror = service._get_workspace_mirror(workspace_id, tenant_key=tenant_key)
     if mirror:
         with mirror.lock:
             if not path:
@@ -150,9 +153,12 @@ def resolve_path(db: Session, workspace_id: int, cwd_node_id: int, path: str) ->
 
 def list_children(db: Session, workspace_id: int, parent_id: int) -> list[Any]:
     from iruka_vfs import service
+    from iruka_vfs.service_ops.state import workspace_state_uses_redis
 
     tenant_key = service._effective_tenant_key()
-    mirror = service._get_workspace_mirror(workspace_id, tenant_key=tenant_key)
+    mirror = None if workspace_state_uses_redis() else service._get_workspace_mirror(workspace_id, tenant_key=tenant_key)
+    if mirror is None:
+        mirror = service._get_workspace_mirror(workspace_id, tenant_key=tenant_key)
     if mirror:
         with mirror.lock:
             return [mirror.nodes[child_id] for child_id in mirror.children_by_parent.get(parent_id, [])]
@@ -176,9 +182,12 @@ def list_children(db: Session, workspace_id: int, parent_id: int) -> list[Any]:
 
 def node_path(db: Session, node: Any) -> str:
     from iruka_vfs import service
+    from iruka_vfs.service_ops.state import workspace_state_uses_redis
 
     tenant_key = service._effective_tenant_key(getattr(node, "tenant_id", None))
-    mirror = service._get_workspace_mirror(int(node.workspace_id), tenant_key=tenant_key)
+    mirror = None if workspace_state_uses_redis() else service._get_workspace_mirror(int(node.workspace_id), tenant_key=tenant_key)
+    if mirror is None:
+        mirror = service._get_workspace_mirror(int(node.workspace_id), tenant_key=tenant_key)
     if mirror:
         with mirror.lock:
             mirror_node = mirror.nodes.get(int(node.id), node)

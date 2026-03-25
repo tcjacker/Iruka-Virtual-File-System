@@ -10,8 +10,7 @@ from iruka_vfs.service_ops.bootstrap import ensure_virtual_workspace, workspace_
 from iruka_vfs.workspace_mirror import (
     assert_workspace_tenant,
     get_workspace_mirror,
-    set_workspace_mirror,
-    workspace_lock,
+    mutate_workspace_mirror,
     workspace_scope_for_db,
 )
 
@@ -104,39 +103,40 @@ def set_workspace_access_mode(
         from iruka_vfs.service_ops.file_api import flush_workspace
 
         flush_workspace(int(workspace.id), tenant_id=tenant_key)
-    mirror = get_workspace_mirror(int(workspace.id), tenant_key=tenant_key, scope_key=scope_key)
-    if not mirror:
+    current_mode = mutate_workspace_mirror(
+        int(workspace.id),
+        tenant_key=tenant_key,
+        scope_key=scope_key,
+        mutate=lambda mirror: _mutate_workspace_access_mode(
+            db,
+            workspace,
+            tenant_key,
+            mirror,
+            normalized_mode,
+        ),
+    )
+    if current_mode is None:
         raise ValueError(f"workspace mirror missing for workspace {workspace.id}")
-    lock = workspace_lock(mirror)
-    if not lock.acquire(blocking=True):
-        raise TimeoutError(f"failed to acquire workspace lock: {workspace.id}")
-    try:
-        current = get_workspace_mirror(int(workspace.id), tenant_key=tenant_key, scope_key=scope_key)
-        if not current:
-            raise ValueError(f"workspace mirror missing for workspace {workspace.id}")
-        with current.lock:
-            metadata = dict(current.workspace_metadata or {})
-            current_mode = workspace_access_mode_from_metadata(metadata)
-            if current_mode == normalized_mode:
-                return current_mode
-            metadata["virtual_access_mode"] = normalized_mode
-            current.workspace_metadata = metadata
-            current.dirty_workspace_metadata = True
-            current.revision += 1
-            workspace.metadata_json = metadata
-            _repositories().workspace.update_workspace_metadata(
-                db,
-                workspace_id=int(workspace.id),
-                tenant_key=tenant_key,
-                metadata_json=metadata,
-            )
-            set_workspace_mirror(current)
-            return normalized_mode
-    finally:
-        try:
-            lock.release()
-        except Exception:
-            pass
+    return current_mode
+
+
+def _mutate_workspace_access_mode(db: Session, workspace: Any, tenant_key: str, current, normalized_mode: str):
+    metadata = dict(current.workspace_metadata or {})
+    current_mode = workspace_access_mode_from_metadata(metadata)
+    if current_mode == normalized_mode:
+        return current_mode, False
+    metadata["virtual_access_mode"] = normalized_mode
+    current.workspace_metadata = metadata
+    current.dirty_workspace_metadata = True
+    current.revision += 1
+    workspace.metadata_json = metadata
+    _repositories().workspace.update_workspace_metadata(
+        db,
+        workspace_id=int(workspace.id),
+        tenant_key=tenant_key,
+        metadata_json=metadata,
+    )
+    return normalized_mode, True
 
 
 __all__ = [

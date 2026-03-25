@@ -97,13 +97,12 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         if not node or node.node_type != "dir":
             return VirtualCommandResult("", f"cd: no such directory: {target}", 1, {})
         session.cwd_node_id = node.id
-        mirror = service._get_workspace_mirror(session.workspace_id, tenant_key=getattr(session, "tenant_id", None))
-        if mirror:
-            with mirror.lock:
-                mirror.cwd_node_id = int(node.id)
-                mirror.dirty_session = True
-                mirror.revision += 1
-        else:
+        changed = service._mutate_workspace_mirror(
+            session.workspace_id,
+            tenant_key=getattr(session, "tenant_id", None),
+            mutate=lambda mirror: _mutate_cd(mirror, int(node.id)),
+        )
+        if changed is None:
             session.updated_at = datetime.utcnow()
             db.add(session)
             db.flush()
@@ -167,6 +166,15 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         return service._exec_touch(db, session, args)
 
     return VirtualCommandResult("", f"unsupported command: {name}", 127, {})
+
+
+def _mutate_cd(mirror, cwd_node_id: int):
+    if int(mirror.cwd_node_id) == cwd_node_id:
+        return False, False
+    mirror.cwd_node_id = cwd_node_id
+    mirror.dirty_session = True
+    mirror.revision += 1
+    return True, True
 
 
 def apply_redirect(db: Session, session, *, output_text: str, redirect: dict[str, str]) -> VirtualCommandResult:

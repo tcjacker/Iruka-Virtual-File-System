@@ -202,9 +202,6 @@ class RedisWorkspaceStateStore:
     ) -> WorkspaceMirror | None:
         from iruka_vfs import workspace_mirror as mirror_api
 
-        active = mirror_api.active_workspace_mirror(workspace_id)
-        if active:
-            return active
         resolved_tenant_key = mirror_api.effective_tenant_key(tenant_key)
         resolved_scope_key = mirror_api.effective_workspace_scope(scope_key)
         client = self._client()

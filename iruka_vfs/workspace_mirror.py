@@ -28,6 +28,11 @@ from iruka_vfs.mirror.indexing import (
     mirror_node_path_locked,
     rebuild_workspace_mirror_indexes_locked,
 )
+from iruka_vfs.mirror.mutation import (
+    execute_workspace_mirror_transaction,
+    mark_workspace_lock_held,
+    mutate_workspace_mirror,
+)
 from iruka_vfs.mirror.serialization import (
     clone_node,
     delete_workspace_mirror,

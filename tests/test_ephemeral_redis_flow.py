@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from iruka_vfs import build_workspace_seed, create_workspace
 from iruka_vfs.dependencies import VFSDependencies, configure_vfs_dependencies
 from iruka_vfs.runtime_seed import RuntimeSeed
 from iruka_vfs.sqlalchemy_models import Base, VFSFileNode, VFSShellCommand, VFSShellSession, VFSWorkspace
@@ -48,6 +49,12 @@ class EphemeralRedisFlowTest(unittest.TestCase):
         _reload("iruka_vfs.models")
         _reload("iruka_vfs.pathing.resolution")
         _reload("iruka_vfs.runtime.filesystem")
+        _reload("iruka_vfs.runtime.executor")
+        _reload("iruka_vfs.runtime.fs_commands")
+        _reload("iruka_vfs.runtime.search")
+        _reload("iruka_vfs.runtime")
+        _reload("iruka_vfs.command_runtime")
+        _reload("iruka_vfs.integrations.agent.shell")
         self.bootstrap = _reload("iruka_vfs.service_ops.bootstrap")
         self.access_mode = _reload("iruka_vfs.service_ops.access_mode")
         self.file_api = _reload("iruka_vfs.service_ops.file_api")
@@ -179,6 +186,71 @@ class EphemeralRedisFlowTest(unittest.TestCase):
             ],
         )
         self.assertEqual(logs[-1]["stdout_text"], "hello-redis")
+
+    def test_host_write_is_immediately_visible_through_redis_store(self) -> None:
+        with self.SessionLocal() as db:
+            workspace_row = VFSWorkspace(
+                tenant_id="test-tenant",
+                runtime_key="runtime:redis-host-read",
+                metadata_json={},
+            )
+            db.add(workspace_row)
+            db.commit()
+            db.refresh(workspace_row)
+
+            workspace = create_workspace(
+                workspace=workspace_row,
+                tenant_id="test-tenant",
+                workspace_seed=build_workspace_seed(
+                    runtime_key="runtime:redis-host-read",
+                    tenant_id="test-tenant",
+                    workspace_files={"/workspace/files/demo.txt": "hello"},
+                ),
+            )
+
+            workspace.ensure(db)
+            workspace.write_file(db, "/workspace/files/demo.txt", "host-updated")
+
+            self.assertEqual(workspace.read_file(db, "/workspace/files/demo.txt"), "host-updated")
+
+            scope_key = self.workspace_mirror.workspace_scope_for_db(db)
+            mirror = self.service_state.get_workspace_state_store().get_workspace_mirror(
+                int(workspace_row.id),
+                tenant_key="test-tenant",
+                scope_key=scope_key,
+            )
+            self.assertIsNotNone(mirror)
+            node = mirror.nodes[mirror.path_to_id["/workspace/files/demo.txt"]]
+            self.assertEqual(node.content_text, "host-updated")
+
+    def test_single_command_chain_reads_back_redis_persisted_edit(self) -> None:
+        workspace = VFSWorkspace(id=403, tenant_id="test-tenant", runtime_key="runtime:e2e-403", metadata_json={})
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-403",
+            tenant_id="test-tenant",
+            workspace_files={"/workspace/files/demo.txt": "hello"},
+            metadata={},
+        )
+
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "edit /workspace/files/demo.txt --find hello --replace hello-redis && cat /workspace/files/demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["stdout"], "edited 1 occurrence(s) in /workspace/files/demo.txt -> version 2\nhello-redis")
 
     def test_high_level_flush_workspace_uses_active_scope(self) -> None:
         workspace = VFSWorkspace(id=402, tenant_id="test-tenant", runtime_key="runtime:e2e-402", metadata_json={})

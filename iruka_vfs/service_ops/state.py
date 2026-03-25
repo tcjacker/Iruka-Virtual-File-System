@@ -163,6 +163,14 @@ def get_workspace_state_store():
     return store
 
 
+def workspace_state_backend_name() -> str:
+    return str(resolve_workspace_state_backend(get_vfs_dependencies()))
+
+
+def workspace_state_uses_redis() -> bool:
+    return workspace_state_backend_name() == "redis"
+
+
 def build_local_memory_workspace_state_store():
     checkpoint_state = _LocalCheckpointState(
         queue=deque(runtime_state.local_checkpoint_queue),

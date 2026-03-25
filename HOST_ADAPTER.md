@@ -86,12 +86,15 @@ workspace.ensure(db)
 
 workspace.bash(db, "...")
   -> service.run_virtual_bash(...)
-  -> service_ops.file_api.run_virtual_bash(...)
+  -> integrations.agent.shell.run_virtual_bash(...)
+  -> mirror.mutation.execute_workspace_mirror_transaction(...)
   -> runtime.executor.run_command_chain(...)
 
 workspace.flush()
   -> service.flush_workspace(...)
   -> service_ops.file_api.flush_workspace(...)
+  -> mirror.checkpoint.resolve_workspace_ref_for_flush(...)
+  -> mirror.checkpoint.run_checkpoint_cycle(...)
   -> mirror.checkpoint.flush_workspace_mirror(...)
 ```
 
@@ -111,6 +114,7 @@ Required constraints:
 - switch to `agent` mode before calling `workspace.bash(db, "...")`
 - switch back to `host` mode before direct host-side file reads or writes
 - keep `workspace.flush()` as an explicit end-of-turn durability action
+- in Redis-backed profiles, treat Redis as the runtime source of truth and in-process mirror objects as transaction-local working objects
 
 This keeps Redis-backed workspace state reusable while avoiding stale DB sessions and request-crossing runtime objects.
 

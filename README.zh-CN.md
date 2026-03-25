@@ -126,12 +126,15 @@ create_workspace(...)
 
 VirtualWorkspace.bash(...)
   -> service.run_virtual_bash(...)
-  -> service_ops.file_api.run_virtual_bash(...)
+  -> integrations.agent.shell.run_virtual_bash(...)
+  -> mirror.mutation.execute_workspace_mirror_transaction(...)
   -> runtime.executor.run_command_chain(...)
 
 VirtualWorkspace.flush()
   -> service.flush_workspace(...)
   -> service_ops.file_api.flush_workspace(...)
+  -> mirror.checkpoint.resolve_workspace_ref_for_flush(...)
+  -> mirror.checkpoint.run_checkpoint_cycle(...)
   -> mirror.checkpoint.flush_workspace_mirror(...)
 ```
 
@@ -165,6 +168,8 @@ workspace.flush()
 ```
 
 这个 facade 是轻量对象。它可以在同一个 agent / workspace 身份下跨 turn 复用，但不应该被多个请求并发调用。
+
+在 Redis profile 下，Redis 是运行态唯一事实来源。进程内 mirror 对象只是在单次事务或单条命令链期间使用的短生命周期工作对象。
 
 ## 宿主文件 API
 

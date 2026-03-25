@@ -171,7 +171,8 @@ iruka_vfs.create_workspace(...)
 ```text
 VirtualWorkspace.bash(...)
   -> iruka_vfs.service.run_virtual_bash(...)
-  -> iruka_vfs.service_ops.file_api.run_virtual_bash(...)
+  -> iruka_vfs.integrations.agent.shell.run_virtual_bash(...)
+  -> iruka_vfs.mirror.mutation.execute_workspace_mirror_transaction(...)
   -> iruka_vfs.service_ops.access_mode.workspace_access_mode_for_runtime(...)
   -> iruka_vfs.service_ops.bootstrap.ensure_virtual_workspace(...)   # when needed
   -> iruka_vfs.runtime.executor.run_command_chain(...)
@@ -186,6 +187,8 @@ VirtualWorkspace.bash(...)
 VirtualWorkspace.flush()
   -> iruka_vfs.service.flush_workspace(...)
   -> iruka_vfs.service_ops.file_api.flush_workspace(...)
+  -> iruka_vfs.mirror.checkpoint.resolve_workspace_ref_for_flush(...)
+  -> iruka_vfs.mirror.checkpoint.run_checkpoint_cycle(...)
   -> iruka_vfs.mirror.checkpoint.flush_workspace_mirror(...)
   -> iruka_vfs.mirror.serialization / indexing / context helpers
   -> iruka_vfs.sqlalchemy_repo.* or another selected repository backend
