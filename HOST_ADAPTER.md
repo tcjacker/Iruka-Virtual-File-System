@@ -71,6 +71,9 @@ workspace.enter_host_mode(db)
 workspace.flush()
 ```
 
+`workspace.ensure(db)` is also the point where the host path prepares the checkpoint persistence precondition used by later `workspace.flush()` calls.
+The same workspace handle also binds to its first real persistence target. Request-scoped sessions may differ, but that handle should not be pointed at a different database later.
+
 `RuntimeSeed` still exists internally, but the preferred host-facing API is the workspace object.
 
 ## Agent Call Flow
@@ -118,6 +121,8 @@ Required constraints:
 - keep `workspace.flush()` as an explicit end-of-turn durability action
 - in Redis-backed profiles, treat Redis as the runtime source of truth and in-process mirror objects as transaction-local working objects
 - treat overwrite as an explicit confirmation step: `workspace.write_file(..., overwrite=True)` for host writes, `>|` for shell redirects
+- call `workspace.ensure(db)` before relying on host-side `workspace.flush()` durability, since it prepares the checkpoint persistence path
+- keep the persistence target stable for one workspace handle; do not reuse the same handle across different databases
 
 This keeps Redis-backed workspace state reusable while avoiding stale DB sessions and request-crossing runtime objects.
 

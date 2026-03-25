@@ -149,6 +149,12 @@ with SessionLocal() as db:
     print(snapshot.get("tree") or "")
 ```
 
+Host-side persistence note:
+
+- `ensure(db)` initializes the checkpoint persistence precondition used by later `workspace.flush()`
+- after a normal `ensure(db)`, the host path does not need to manually prepare checkpoint worker state
+- after the first successful operation with a real DB session, the same workspace handle is bound to that persistence target and must not be reused with another database target
+
 ### 4.4 Switch to Agent Mode and Run Commands
 
 ```python
@@ -247,6 +253,8 @@ In practice this means:
 - in Redis-backed profiles, file/session/cwd mutations are only considered successful after the runtime state has been written back to Redis
 - reads in Redis-backed profiles resolve from Redis-backed runtime state
 - `workspace.flush()` resolves the current workspace ref first, then runs one checkpoint cycle
+- on the host path, `ensure(db)` prepares the persistence path needed by later `workspace.flush()` calls
+- the workspace handle binds to its first real persistence target; request-scoped DB sessions may change, but the underlying database target must stay the same
 
 ## 5. Runtime Profiles
 

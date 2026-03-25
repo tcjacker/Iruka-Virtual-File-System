@@ -114,6 +114,8 @@ The recommended way to integrate with an agent runtime is:
 6. Switch back to host mode before direct host-side reads or writes
 7. Call `workspace.flush()` at an explicit durability boundary
 
+For host-side durability, `workspace.ensure(db)` also initializes the checkpoint persistence precondition used by `workspace.flush()`. After a normal `ensure(db)`, the host path does not need to initialize checkpoint worker state manually.
+
 The core call path is:
 
 ```text
@@ -171,6 +173,8 @@ This facade is intentionally lightweight. It can be reused across turns for the 
 `create_workspace(...)` takes a generic `workspace_seed`. Build it with `build_workspace_seed(...)` and put all initial files into `workspace_files`.
 
 In Redis-backed profiles, Redis is the runtime source of truth. In-process mirror objects are only short-lived working objects inside one transaction or command chain.
+On the host path, a successful `ensure(db)` also prepares the checkpoint persistence path used by later `workspace.flush()` calls.
+The handle also binds to the first real persistence target it sees. After the first successful `ensure/read/write/bash` with a real DB session, the same workspace handle must not be reused against a different database target.
 
 ## Host File API
 
@@ -208,6 +212,7 @@ Recommended rules:
 - one agent -> one workspace
 - no concurrent command execution on the same workspace
 - keep database sessions request-scoped rather than storing a long-lived `Session` inside a reusable workspace object
+- treat the persistence target as stable for one workspace handle; after first use, do not switch that handle to a different database
 - call `workspace.flush()` explicitly at turn end or another clear durability boundary
 
 In practice, the safest facade is a lightweight workspace object that stores identifiers and seed config, while each command call receives the current request's DB session.

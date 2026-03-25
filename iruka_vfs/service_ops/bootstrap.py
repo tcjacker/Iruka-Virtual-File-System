@@ -38,10 +38,48 @@ from iruka_vfs.workspace_mirror import (
 )
 from iruka_vfs.workspace_state_serialization import serialize_workspace_mirror
 
+
+VIRTUAL_PERSISTENCE_BINDING_KEY = "virtual_persistence_binding"
+
+
 def _repositories():
     from iruka_vfs.dependency_resolution import resolve_vfs_repositories
 
     return resolve_vfs_repositories()
+
+
+def persistence_binding_for_db(db: Session | None) -> str:
+    if db is None:
+        return ""
+    bind = db.get_bind()
+    engine = getattr(bind, "engine", bind)
+    url = getattr(engine, "url", None)
+    if url is None:
+        return f"{type(engine).__name__}:{id(engine)}"
+    return str(url.render_as_string(hide_password=False))
+
+
+def _assert_workspace_persistence_binding(db: Session | None, workspace: Any) -> str:
+    current_binding = persistence_binding_for_db(db)
+    if not current_binding:
+        return ""
+    metadata = dict(getattr(workspace, "metadata_json", {}) or {})
+    existing_binding = str(metadata.get(VIRTUAL_PERSISTENCE_BINDING_KEY) or "").strip()
+    if existing_binding and existing_binding != current_binding:
+        raise ValueError(
+            f"workspace is bound to persistence target '{existing_binding}', got '{current_binding}'"
+        )
+    return current_binding
+
+
+def _ensure_checkpoint_worker_for_db(db: Session | None) -> None:
+    from iruka_vfs.mirror.checkpoint import ensure_workspace_checkpoint_worker
+
+    if db is None:
+        return
+    bind = db.get_bind()
+    if bind is not None:
+        ensure_workspace_checkpoint_worker(bind)
 
 
 def ensure_virtual_workspace(
@@ -54,6 +92,8 @@ def ensure_virtual_workspace(
 ) -> dict[str, Any]:
     tenant_key = assert_workspace_tenant(workspace, tenant_id)
     scope_key = workspace_scope_for_db(db)
+    persistence_binding = _assert_workspace_persistence_binding(db, workspace)
+    _ensure_checkpoint_worker_for_db(db)
     register_runtime_seed(int(workspace.id), tenant_key, workspace_seed)
     set_active_workspace_tenant(tenant_key)
     set_active_workspace_scope(scope_key)
@@ -90,6 +130,8 @@ def ensure_virtual_workspace(
         metadata["virtual_workspace_files"] = sorted(
             normalize_workspace_path(path, require_file=True) for path in workspace_seed.workspace_files
         )
+        if persistence_binding:
+            metadata[VIRTUAL_PERSISTENCE_BINDING_KEY] = persistence_binding
         metadata["virtual_workspace_ready"] = True
         metadata.update(workspace_seed.metadata)
         if workspace.metadata_json != metadata or str(getattr(workspace, "tenant_id", "") or "") != tenant_key:
@@ -129,6 +171,8 @@ def refresh_virtual_workspace(
 ) -> dict[str, Any]:
     tenant_key = assert_workspace_tenant(workspace, tenant_id)
     scope_key = workspace_scope_for_db(db)
+    persistence_binding = _assert_workspace_persistence_binding(db, workspace)
+    _ensure_checkpoint_worker_for_db(db)
     register_runtime_seed(int(workspace.id), tenant_key, workspace_seed)
     set_active_workspace_tenant(tenant_key)
     set_active_workspace_scope(scope_key)
@@ -163,6 +207,9 @@ def refresh_virtual_workspace(
                 mirror = current_mirror
 
         metadata = dict(mirror.workspace_metadata or {})
+        if persistence_binding:
+            metadata[VIRTUAL_PERSISTENCE_BINDING_KEY] = persistence_binding
+        mirror.workspace_metadata = metadata
         snapshot = {
             "workspace_id": int(workspace.id),
             "session_id": int(session.id),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import tempfile
 import unittest
 from types import SimpleNamespace
 
@@ -194,9 +195,6 @@ class WorkspaceRefreshTest(unittest.TestCase):
             self.assertEqual(mirror.workspace_metadata["virtual_access_mode"], "agent")
 
     def test_workspace_flush_persists_host_write_without_active_scope(self) -> None:
-        runtime_state = importlib.import_module("iruka_vfs.runtime_state")
-        runtime_state.workspace_checkpoint_session_maker = self.SessionLocal
-
         with self.SessionLocal() as db:
             workspace_row = VFSWorkspace(
                 tenant_id="test-tenant",
@@ -233,6 +231,42 @@ class WorkspaceRefreshTest(unittest.TestCase):
             self.assertIsNotNone(node)
             self.assertEqual(node.content_text, "host-updated")
             self.assertEqual(int(node.version_no), 2)
+
+    def test_workspace_handle_rejects_different_persistence_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            other_engine = create_engine(
+                f"sqlite+pysqlite:///{tmpdir}/other.db",
+                future=True,
+            )
+            Base.metadata.create_all(bind=other_engine)
+            OtherSessionLocal = sessionmaker(bind=other_engine, autoflush=False, autocommit=False, class_=Session)
+            try:
+                with self.SessionLocal() as db:
+                    workspace_row = VFSWorkspace(
+                        tenant_id="test-tenant",
+                        runtime_key="runtime:refresh-bind",
+                        metadata_json={},
+                    )
+                    db.add(workspace_row)
+                    db.commit()
+                    db.refresh(workspace_row)
+
+                    workspace = create_workspace(
+                        workspace=workspace_row,
+                        tenant_id="test-tenant",
+                        workspace_seed=build_workspace_seed(
+                            runtime_key="runtime:refresh-bind",
+                            tenant_id="test-tenant",
+                            workspace_files={"/workspace/files/demo.txt": "host-seed"},
+                        ),
+                    )
+                    workspace.ensure(db)
+
+                with OtherSessionLocal() as other_db:
+                    with self.assertRaisesRegex(ValueError, "workspace handle is bound to persistence target"):
+                        workspace.ensure(other_db)
+            finally:
+                other_engine.dispose()
 
 
 if __name__ == "__main__":

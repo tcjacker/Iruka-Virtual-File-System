@@ -117,6 +117,8 @@ configure_vfs_dependencies(
 6. 宿主直读直写前切回 `workspace.enter_host_mode(db)`
 7. 在 turn 结束或明确持久化边界调用 `workspace.flush()`
 
+对 host 路径来说，`workspace.ensure(db)` 也会顺带初始化 `workspace.flush()` 所需的 checkpoint 持久化前置条件。正常先执行一次 `ensure(db)` 后，宿主不需要再手工初始化 checkpoint worker 状态。
+
 核心调用链如下：
 
 ```text
@@ -172,6 +174,8 @@ workspace.flush()
 这个 facade 是轻量对象。它可以在同一个 agent / workspace 身份下跨 turn 复用，但不应该被多个请求并发调用。
 
 在 Redis profile 下，Redis 是运行态唯一事实来源。进程内 mirror 对象只是在单次事务或单条命令链期间使用的短生命周期工作对象。
+在 host 路径上，一次成功的 `ensure(db)` 也会为后续 `workspace.flush()` 准备好 checkpoint 持久化路径。
+同一个 workspace handle 还会在第一次看到真实持久层目标后绑定这份目标；首次成功 `ensure/read/write/bash` 之后，不应再把这个 handle 切到另一套数据库。
 
 ## 宿主文件 API
 
@@ -209,6 +213,7 @@ workspace.flush()
 - 一个 agent 对应一个 workspace
 - 同一个 workspace 不并发执行命令
 - 数据库 `Session` 按请求创建和传入，不要长期保存在 workspace 对象里
+- 同一个 workspace handle 的持久层目标应保持稳定；首次使用后不要再切换到另一套数据库
 - 在 turn 结束或明确的持久化边界调用 `workspace.flush()`
 
 实践上，最安全的方式是让 workspace 对象只保存标识信息和 seed 配置，而每次命令执行都使用当前请求的 DB session。

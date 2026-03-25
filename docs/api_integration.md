@@ -209,6 +209,12 @@ with SessionLocal() as db:
     print(snapshot.get("tree") or "")
 ```
 
+host 持久化说明：
+
+- `ensure(db)` 会初始化后续 `workspace.flush()` 所需的 checkpoint 持久化前置条件
+- 正常走过一次 `ensure(db)` 后，host 路径不需要再手工准备 checkpoint worker 状态
+- 第一次使用真实 DB session 成功执行后，同一个 workspace handle 会绑定这份持久层目标，之后不应再复用到另一套数据库
+
 ### 4.4 进入 agent 模式并执行命令
 
 ```python
@@ -308,6 +314,8 @@ workspace.flush()
 - Redis profile 下，文件/cwd/session 等运行态修改，只有成功写回 Redis 后才算成功
 - Redis profile 下，读取以 Redis 中的运行态为准
 - `workspace.flush()` 会先解析当前 workspace ref，再执行一轮 checkpoint cycle
+- host 路径下，`ensure(db)` 会为后续 `workspace.flush()` 准备好持久化路径
+- workspace handle 会绑定第一次看到的真实持久层目标；请求级 DB session 可以变化，但底层数据库目标不应变化
 
 ## 5. 三种模式示例
 

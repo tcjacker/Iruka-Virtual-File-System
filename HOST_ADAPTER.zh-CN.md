@@ -71,6 +71,9 @@ workspace.enter_host_mode(db)
 workspace.flush()
 ```
 
+`workspace.ensure(db)` 也是 host 路径准备后续 `workspace.flush()` 所需 checkpoint 持久化前置条件的时机。
+同一个 workspace handle 还会绑定它第一次看到的真实持久层目标。请求级 session 可以变化，但后续不应再把这个 handle 指向另一套数据库。
+
 `RuntimeSeed` 仍然存在于内部实现中，但对宿主侧推荐直接使用 workspace facade。
 
 ## Agent 调用链
@@ -117,6 +120,8 @@ workspace.flush()
 - 把 `workspace.flush()` 作为显式的持久化动作
 - 在 Redis profile 下，把 Redis 视为运行态唯一事实来源，把进程内 mirror 对象视为事务内的临时工作对象
 - 把覆盖也视为显式确认动作：宿主写入用 `workspace.write_file(..., overwrite=True)`，shell redirect 用 `>|`
+- 如果要依赖 host 路径的 `workspace.flush()` 落库，先确保已经执行过一次 `workspace.ensure(db)`，因为它会准备 checkpoint 持久化路径
+- 同一个 workspace handle 的持久层目标要保持稳定，不要跨不同数据库复用同一个 handle
 
 这样可以在复用 Redis workspace 状态的同时，避免 stale session 和跨请求运行时对象带来的问题。
 
