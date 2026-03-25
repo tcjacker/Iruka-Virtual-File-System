@@ -9,6 +9,34 @@ from iruka_vfs.command_parser import parse_pipeline_and_redirect, split_chain
 from iruka_vfs.models import VirtualCommandResult
 
 
+HELP_TEXT = """Virtual workspace shell
+
+Supported commands:
+- pwd
+- cd <path>
+- ls [path]
+- cat <file>
+- rg <pattern> [path]
+- grep <pattern> [path]
+- wc -l <file>
+- mkdir [-p] <path>
+- touch <file>
+- edit <file> --find <text> --replace <text> [--all]
+- patch --path <file> --find <text> --replace <text>
+- patch --path <file> --unified <diff>
+- tree
+- echo <text>
+- help
+
+Write rules:
+- All writes must stay under /workspace
+- > creates or writes a file but does not overwrite an existing file
+- >| overwrites an existing file explicitly
+- >> appends to an existing file
+- Use host write_file(..., overwrite=True) or shell >| only after confirmation
+"""
+
+
 def run_command_chain(db: Session, session, raw_cmd: str) -> VirtualCommandResult:
     pieces = split_chain(raw_cmd)
     stdout_chunks: list[str] = []
@@ -83,7 +111,10 @@ def run_single_command(db: Session, session, cmd: str) -> VirtualCommandResult:
             return VirtualCommandResult("", write_result.stderr, write_result.exit_code, artifacts)
         return VirtualCommandResult("", "", 0, {"pipeline": pipeline_artifacts, "redirect": write_result.artifacts})
 
-    return VirtualCommandResult(effective_stdout, effective_stderr, last_result.exit_code, {"pipeline": pipeline_artifacts})
+    artifacts = {"pipeline": pipeline_artifacts}
+    if isinstance(last_result.artifacts, dict):
+        artifacts.update(last_result.artifacts)
+    return VirtualCommandResult(effective_stdout, effective_stderr, last_result.exit_code, artifacts)
 
 
 def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") -> VirtualCommandResult:
@@ -170,6 +201,32 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         return VirtualCommandResult(service.render_virtual_tree(db, session.workspace_id), "", 0, {})
     if name == "echo":
         return VirtualCommandResult(" ".join(args), "", 0, {})
+    if name == "help":
+        return VirtualCommandResult(
+            HELP_TEXT,
+            "",
+            0,
+            {
+                "supported_commands": [
+                    "pwd",
+                    "cd",
+                    "ls",
+                    "cat",
+                    "rg",
+                    "grep",
+                    "wc",
+                    "mkdir",
+                    "touch",
+                    "edit",
+                    "patch",
+                    "tree",
+                    "echo",
+                    "help",
+                ],
+                "redirects": [">", ">|", ">>"],
+                "write_root": "/workspace",
+            },
+        )
     if name == "touch":
         return service._exec_touch(db, session, args)
 

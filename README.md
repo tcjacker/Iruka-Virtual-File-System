@@ -116,6 +116,25 @@ The recommended way to integrate with an agent runtime is:
 
 For host-side durability, `workspace.ensure(db)` also initializes the checkpoint persistence precondition used by `workspace.flush()`. After a normal `ensure(db)`, the host path does not need to initialize checkpoint worker state manually.
 
+The virtual shell also provides a built-in `help` command. If the agent needs to re-check the supported surface at runtime, call `workspace.bash(db, "help")` and read `stdout` or `artifacts["supported_commands"]`.
+
+Recommended minimal agent prompt:
+
+```text
+You are in a virtual workspace, not a full OS shell.
+
+Use workspace.bash(db, "...") with only these commands:
+pwd, cd, ls, cat, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
+
+Write rules:
+- stay under /workspace
+- > does not overwrite existing files
+- >| overwrites explicitly
+- >> appends
+
+If you are unsure what is supported, run: help
+```
+
 The core call path is:
 
 ```text

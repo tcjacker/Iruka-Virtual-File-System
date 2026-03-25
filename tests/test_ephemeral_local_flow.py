@@ -580,6 +580,40 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["exit_code"], 127)
             self.assertEqual(result["stderr"], "unsupported command: doesnotexist")
 
+    def test_help_command_describes_supported_shell_surface(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 315)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "help",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertIn("Supported commands:", result["stdout"])
+            self.assertIn("- help", result["stdout"])
+            self.assertIn(">| overwrites an existing file explicitly", result["stdout"])
+            self.assertEqual(
+                result["artifacts"]["supported_commands"],
+                [
+                    "pwd",
+                    "cd",
+                    "ls",
+                    "cat",
+                    "rg",
+                    "grep",
+                    "wc",
+                    "mkdir",
+                    "touch",
+                    "edit",
+                    "patch",
+                    "tree",
+                    "echo",
+                    "help",
+                ],
+            )
+
     def test_parse_error_is_returned_for_missing_redirect_target(self) -> None:
         with self.SessionLocal() as db:
             workspace, runtime_seed = self._prepare_agent_workspace(db, 310)

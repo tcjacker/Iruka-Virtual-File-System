@@ -119,6 +119,25 @@ configure_vfs_dependencies(
 
 对 host 路径来说，`workspace.ensure(db)` 也会顺带初始化 `workspace.flush()` 所需的 checkpoint 持久化前置条件。正常先执行一次 `ensure(db)` 后，宿主不需要再手工初始化 checkpoint worker 状态。
 
+虚拟 shell 现在还提供内置 `help` 命令。如果 agent 运行时忘记支持哪些能力，可以直接执行 `workspace.bash(db, "help")`，读取返回的 `stdout` 或 `artifacts["supported_commands"]`。
+
+推荐给 agent 注入的最小 prompt：
+
+```text
+你当前处在虚拟 workspace 中，不是完整操作系统 shell。
+
+只能通过 workspace.bash(db, "...") 使用这些命令：
+pwd, cd, ls, cat, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
+
+写入规则：
+- 只能写 /workspace 下的路径
+- > 不会覆盖已有文件
+- >| 才表示显式覆盖
+- >> 表示追加
+
+如果不确定支持什么，先执行：help
+```
+
 核心调用链如下：
 
 ```text

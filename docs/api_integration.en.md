@@ -167,6 +167,42 @@ with SessionLocal() as db:
     print(result["stdout"])
 ```
 
+The virtual shell is intentionally small. Current supported commands are:
+
+- `pwd`
+- `cd`
+- `ls`
+- `cat`
+- `rg`
+- `grep`
+- `wc -l`
+- `mkdir`
+- `touch`
+- `edit`
+- `patch`
+- `tree`
+- `echo`
+- `help`
+
+Use `workspace_handle.bash(db, "help")` when the agent needs the current command list and write rules at runtime.
+
+Recommended agent bootstrap prompt:
+
+```text
+You are in a virtual workspace, not a full OS shell.
+
+Use workspace.bash(db, "...") with only these commands:
+pwd, cd, ls, cat, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
+
+Write rules:
+- stay under /workspace
+- > does not overwrite existing files
+- >| overwrites explicitly
+- >> appends
+
+If you are unsure what is supported, run: help
+```
+
 ### 4.5 Flush Runtime State
 
 ```python
@@ -240,6 +276,7 @@ Overwrite confirmation rules:
 - if the file already exists, it returns a structured conflict payload with `reason="already_exists"` and `requires_confirmation=True`
 - shell redirect `>` follows the same rule and fails on existing files
 - shell redirect `>|` is the explicit overwrite form
+- `help` prints the current shell surface and these write rules inside the agent runtime
 
 ### 4.8 Runtime Transaction Semantics
 

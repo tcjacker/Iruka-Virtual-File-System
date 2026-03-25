@@ -228,6 +228,42 @@ with SessionLocal() as db:
     print(result["stdout"])
 ```
 
+虚拟 shell 本身是一个很小的命令子集。当前支持：
+
+- `pwd`
+- `cd`
+- `ls`
+- `cat`
+- `rg`
+- `grep`
+- `wc -l`
+- `mkdir`
+- `touch`
+- `edit`
+- `patch`
+- `tree`
+- `echo`
+- `help`
+
+如果 agent 在运行时忘记当前支持哪些命令，可以直接调用 `workspace_handle.bash(db, "help")`，读取其中的命令列表和写入规则。
+
+推荐给 agent 注入的启动 prompt：
+
+```text
+你当前处在虚拟 workspace 中，不是完整操作系统 shell。
+
+只能通过 workspace.bash(db, "...") 使用这些命令：
+pwd, cd, ls, cat, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
+
+写入规则：
+- 只能写 /workspace 下的路径
+- > 不会覆盖已有文件
+- >| 才表示显式覆盖
+- >> 表示追加
+
+如果不确定支持什么，先执行：help
+```
+
 ### 4.5 刷新到后端
 
 ```python
@@ -301,6 +337,7 @@ workspace.flush()
 - 如果目标文件已存在，会返回结构化冲突 payload，其中包含 `reason="already_exists"` 和 `requires_confirmation=True`
 - shell redirect `>` 也遵循同样规则，遇到已存在文件时失败
 - shell redirect `>|` 才表示显式允许覆盖
+- `help` 会在 agent 运行时打印当前支持的命令面和这些写入规则
 
 ### 4.8 运行时事务语义
 
