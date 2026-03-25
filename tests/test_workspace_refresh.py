@@ -38,8 +38,9 @@ class WorkspaceRefreshTest(unittest.TestCase):
         _reload("iruka_vfs.pathing.resolution")
         _reload("iruka_vfs.runtime.filesystem")
         _reload("iruka_vfs.service_ops.bootstrap")
+        self.service_state = _reload("iruka_vfs.service_ops.state")
         _reload("iruka_vfs.service_ops.file_api")
-        _reload("iruka_vfs.workspace_mirror")
+        self.workspace_mirror = _reload("iruka_vfs.workspace_mirror")
         _reload("iruka_vfs.service")
 
         self.engine = create_engine(
@@ -102,6 +103,49 @@ class WorkspaceRefreshTest(unittest.TestCase):
 
             current = workspace.read_file(db, "/workspace/files/demo.txt")
             self.assertEqual(current, "db-updated")
+
+    def test_refresh_skips_rebuild_when_mirror_matches_database(self) -> None:
+        with self.SessionLocal() as db:
+            workspace_row = VFSWorkspace(
+                tenant_id="test-tenant",
+                runtime_key="runtime:refresh-2",
+                metadata_json={},
+            )
+            db.add(workspace_row)
+            db.commit()
+            db.refresh(workspace_row)
+
+            workspace = create_workspace(
+                workspace=workspace_row,
+                tenant_id="test-tenant",
+                runtime_key="runtime:refresh-2",
+                primary_file=WritableFileSource(
+                    file_id="demo-file:refresh-2",
+                    virtual_path="/workspace/files/demo.txt",
+                    read_text=lambda: self.host_text["value"],
+                    write_text=lambda text: self.host_text.__setitem__("value", text),
+                ),
+            )
+
+            workspace.ensure(db)
+            workspace.refresh(db, include_tree=False)
+            scope_key = self.workspace_mirror.workspace_scope_for_db(db)
+            store = self.service_state.get_workspace_state_store()
+            mirror_before = store.get_workspace_mirror(
+                int(workspace_row.id),
+                tenant_key="test-tenant",
+                scope_key=scope_key,
+            )
+            self.assertIsNotNone(mirror_before)
+
+            workspace.refresh(db, include_tree=False)
+
+            mirror_after = store.get_workspace_mirror(
+                int(workspace_row.id),
+                tenant_key="test-tenant",
+                scope_key=scope_key,
+            )
+            self.assertIs(mirror_after, mirror_before)
 
 
 if __name__ == "__main__":

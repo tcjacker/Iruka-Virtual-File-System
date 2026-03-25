@@ -242,9 +242,10 @@ with SessionLocal() as db:
 
 这个接口的语义是：
 
-- 删除当前 `WorkspaceStateStore` 里的 mirror
-- 清掉对应的 snapshot cache
-- 仅根据数据库当前状态重建 workspace mirror
+- 先比较当前 `WorkspaceStateStore` 中的 mirror 和数据库中的 workspace 状态是否一致
+- 如果一致，直接跳过，不做删除重建
+- 如果不一致，删除当前 mirror 和 snapshot cache
+- 然后仅根据数据库当前状态重建 workspace mirror
 
 注意：
 

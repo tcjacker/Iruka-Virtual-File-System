@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -38,6 +39,7 @@ from iruka_vfs.workspace_mirror import (
     set_workspace_mirror,
     workspace_scope_for_db,
 )
+from iruka_vfs.workspace_state_serialization import serialize_workspace_mirror
 
 _dependencies = get_vfs_dependencies()
 _repositories = resolve_vfs_repositories()
@@ -160,16 +162,34 @@ def refresh_virtual_workspace(
     set_active_workspace_tenant(tenant_key)
     set_active_workspace_scope(scope_key)
     try:
-        delete_workspace_mirror(
+        current_mirror = get_workspace_mirror(
             int(workspace.id),
-            tenant_id=tenant_key,
+            tenant_key=tenant_key,
             scope_key=scope_key,
         )
-        clear_cached_workspace_state(scope_key, int(workspace.id))
-
-        session = get_or_create_session(db, int(workspace.id))
-        mirror = build_workspace_mirror(db, workspace, session=session)
-        set_workspace_mirror(mirror)
+        session = _repositories.session.get_active_session(db, int(workspace.id), tenant_key)
+        if session is None:
+            delete_workspace_mirror(
+                int(workspace.id),
+                tenant_id=tenant_key,
+                scope_key=scope_key,
+            )
+            clear_cached_workspace_state(scope_key, int(workspace.id))
+            session = get_or_create_session(db, int(workspace.id))
+            mirror = build_workspace_mirror(db, workspace, session=session)
+            set_workspace_mirror(mirror)
+        else:
+            mirror = build_workspace_mirror(db, workspace, session=session)
+            if current_mirror is None or _refresh_signature(current_mirror) != _refresh_signature(mirror):
+                delete_workspace_mirror(
+                    int(workspace.id),
+                    tenant_id=tenant_key,
+                    scope_key=scope_key,
+                )
+                clear_cached_workspace_state(scope_key, int(workspace.id))
+                set_workspace_mirror(mirror)
+            else:
+                mirror = current_mirror
 
         metadata = dict(mirror.workspace_metadata or {})
         snapshot = {
@@ -183,6 +203,17 @@ def refresh_virtual_workspace(
         return snapshot
     finally:
         set_active_workspace_tenant(None)
+
+
+def _refresh_signature(mirror) -> dict[str, Any]:
+    payload = json.loads(serialize_workspace_mirror(mirror))
+    payload.pop("tenant_key", None)
+    payload.pop("scope_key", None)
+    payload.pop("workspace_id", None)
+    payload.pop("revision", None)
+    payload.pop("checkpoint_revision", None)
+    payload.pop("next_temp_id", None)
+    return payload
 
 
 def sync_external_file_source(
