@@ -218,7 +218,7 @@ class WorkspaceRefreshTest(unittest.TestCase):
             )
 
             workspace.ensure(db)
-            workspace.write_file(db, "/workspace/files/demo.txt", "host-updated")
+            workspace.write_file(db, "/workspace/files/demo.txt", "host-updated", overwrite=True)
 
             self.assertTrue(workspace.flush())
 

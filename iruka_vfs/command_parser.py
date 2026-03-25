@@ -50,11 +50,14 @@ def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
             current = []
             idx += 1
             continue
-        if token in {">", ">>"}:
+        if token in {">", ">>", ">|"}:
             if idx + 1 >= len(tokens):
                 return {}, "parse error: redirect target is missing"
-            redirect = {"op": token, "path": tokens[idx + 1]}
+            redirect = {"op": token, "path": tokens[idx + 1], "force": token == ">|"}
             idx += 2
+            if idx < len(tokens) and tokens[idx] == "--force":
+                redirect["force"] = True
+                idx += 1
             if idx < len(tokens):
                 return {}, "parse error: trailing tokens after redirect target"
             break

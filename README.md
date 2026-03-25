@@ -155,7 +155,9 @@ workspace = create_workspace(
 )
 
 workspace.ensure(db)
-workspace.write_file(db, "/workspace/docs/generated.md", "hello from host")
+conflict = workspace.write_file(db, "/workspace/docs/generated.md", "hello from host")
+if conflict.get("conflict"):
+    workspace.write_file(db, "/workspace/docs/generated.md", "hello from host", overwrite=True)
 content = workspace.read_file(db, "/workspace/docs/brief.md")
 files = workspace.read_directory(db, "/workspace/docs")
 workspace.enter_agent_mode(db)
@@ -175,7 +177,7 @@ In Redis-backed profiles, Redis is the runtime source of truth. In-process mirro
 Besides `workspace.bash(...)`, the host can manage virtual workspace files directly through Python APIs.
 
 - `create_workspace(..., workspace_files={path: content, ...})`
-- `workspace.write_file(db, path, content)`
+- `workspace.write_file(db, path, content, overwrite=False)`
 - `workspace.read_file(db, path)`
 - `workspace.read_directory(db, path, recursive=True)`
 - `workspace.enter_agent_mode(db)` / `workspace.enter_host_mode(db)`
@@ -187,8 +189,15 @@ Current access-mode rules:
 - Paths must stay under `/workspace`
 - `read_directory(...)` returns a `{virtual_path: content}` mapping
 - `write_file(...)` requires `host` mode
+- `write_file(...)` does not overwrite an existing file unless `overwrite=True`
 - `read_file(...)` and `read_directory(...)` are allowed in both `host` and `agent` mode
 - `workspace.bash(...)` requires `agent` mode
+
+Overwrite confirmation rules:
+
+- `workspace.write_file(...)` returns a structured conflict payload when the target file already exists and `overwrite=False`
+- shell redirect `>` also fails with a structured conflict payload when the target file already exists
+- shell redirect `>|` is the explicit overwrite form
 
 ## Workspace Lifecycle
 

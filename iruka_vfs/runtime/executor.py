@@ -28,6 +28,8 @@ def run_command_chain(db: Session, session, raw_cmd: str) -> VirtualCommandResul
         if result.stderr:
             stderr_chunks.append(result.stderr)
         artifacts["results"].append({"cmd": cmd, "exit_code": result.exit_code, "artifacts": result.artifacts})
+        if isinstance(result.artifacts, dict):
+            artifacts.update(result.artifacts)
 
     return VirtualCommandResult(
         stdout="\n".join(chunk for chunk in stdout_chunks if chunk).strip(),
@@ -60,7 +62,10 @@ def run_single_command(db: Session, session, cmd: str) -> VirtualCommandResult:
             if merge_stderr and stderr:
                 stdout = (stdout + ("\n" if stdout and not stdout.endswith("\n") else "") + stderr).strip()
                 stderr = ""
-            return VirtualCommandResult(stdout=stdout, stderr=stderr, exit_code=last_result.exit_code, artifacts={"pipeline": pipeline_artifacts})
+            artifacts = {"pipeline": pipeline_artifacts}
+            if isinstance(last_result.artifacts, dict):
+                artifacts.update(last_result.artifacts)
+            return VirtualCommandResult(stdout=stdout, stderr=stderr, exit_code=last_result.exit_code, artifacts=artifacts)
         input_text = last_result.stdout
 
     effective_stdout = last_result.stdout
@@ -72,7 +77,10 @@ def run_single_command(db: Session, session, cmd: str) -> VirtualCommandResult:
     if redirect:
         write_result = apply_redirect(db, session, output_text=effective_stdout, redirect=redirect)
         if write_result.exit_code != 0:
-            return VirtualCommandResult("", write_result.stderr, write_result.exit_code, {"pipeline": pipeline_artifacts})
+            artifacts = {"pipeline": pipeline_artifacts}
+            if isinstance(write_result.artifacts, dict):
+                artifacts.update(write_result.artifacts)
+            return VirtualCommandResult("", write_result.stderr, write_result.exit_code, artifacts)
         return VirtualCommandResult("", "", 0, {"pipeline": pipeline_artifacts, "redirect": write_result.artifacts})
 
     return VirtualCommandResult(effective_stdout, effective_stderr, last_result.exit_code, {"pipeline": pipeline_artifacts})
@@ -179,9 +187,11 @@ def _mutate_cd(mirror, cwd_node_id: int):
 
 def apply_redirect(db: Session, session, *, output_text: str, redirect: dict[str, str]) -> VirtualCommandResult:
     from iruka_vfs import service
+    from iruka_vfs.write_conflicts import build_overwrite_conflict, format_overwrite_conflict_message
 
     target_path = redirect["path"]
     op = redirect["op"]
+    force = bool(redirect.get("force"))
     node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, target_path)
     if node and node.node_type == "dir":
         return VirtualCommandResult("", f"redirect: {target_path}: is a directory", 1, {})
@@ -198,6 +208,15 @@ def apply_redirect(db: Session, session, *, output_text: str, redirect: dict[str
         if not parent:
             return VirtualCommandResult("", f"redirect: cannot create {target_path}: invalid parent path", 1, {})
         node = service._get_or_create_child_file(db, session.workspace_id, parent.id, name, "")
+    elif op == ">" and not force:
+        conflict = build_overwrite_conflict(service._node_path(db, node), source="redirect")
+        conflict["op"] = op
+        return VirtualCommandResult(
+            "",
+            format_overwrite_conflict_message(service._node_path(db, node), source="redirect"),
+            1,
+            conflict,
+        )
 
     new_content = output_text
     if op == ">>":

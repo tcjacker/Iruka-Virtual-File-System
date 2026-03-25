@@ -209,7 +209,7 @@ class EphemeralRedisFlowTest(unittest.TestCase):
             )
 
             workspace.ensure(db)
-            workspace.write_file(db, "/workspace/files/demo.txt", "host-updated")
+            workspace.write_file(db, "/workspace/files/demo.txt", "host-updated", overwrite=True)
 
             self.assertEqual(workspace.read_file(db, "/workspace/files/demo.txt"), "host-updated")
 
@@ -222,6 +222,38 @@ class EphemeralRedisFlowTest(unittest.TestCase):
             self.assertIsNotNone(mirror)
             node = mirror.nodes[mirror.path_to_id["/workspace/files/demo.txt"]]
             self.assertEqual(node.content_text, "host-updated")
+
+    def test_host_write_requires_overwrite_confirmation_in_redis_mode(self) -> None:
+        with self.SessionLocal() as db:
+            workspace_row = VFSWorkspace(
+                tenant_id="test-tenant",
+                runtime_key="runtime:redis-host-overwrite",
+                metadata_json={},
+            )
+            db.add(workspace_row)
+            db.commit()
+            db.refresh(workspace_row)
+
+            workspace = create_workspace(
+                workspace=workspace_row,
+                tenant_id="test-tenant",
+                workspace_seed=build_workspace_seed(
+                    runtime_key="runtime:redis-host-overwrite",
+                    tenant_id="test-tenant",
+                    workspace_files={"/workspace/files/demo.txt": "hello"},
+                ),
+            )
+
+            workspace.ensure(db)
+            conflict = workspace.write_file(db, "/workspace/files/demo.txt", "host-updated")
+            self.assertFalse(conflict["ok"])
+            self.assertTrue(conflict["conflict"])
+            self.assertEqual(conflict["reason"], "already_exists")
+            self.assertEqual(workspace.read_file(db, "/workspace/files/demo.txt"), "hello")
+
+            written = workspace.write_file(db, "/workspace/files/demo.txt", "host-updated", overwrite=True)
+            self.assertTrue(written["ok"])
+            self.assertEqual(workspace.read_file(db, "/workspace/files/demo.txt"), "host-updated")
 
     def test_single_command_chain_reads_back_redis_persisted_edit(self) -> None:
         workspace = VFSWorkspace(id=403, tenant_id="test-tenant", runtime_key="runtime:e2e-403", metadata_json={})

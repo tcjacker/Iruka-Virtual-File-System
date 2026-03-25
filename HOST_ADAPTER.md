@@ -60,7 +60,9 @@ workspace = create_workspace(
 )
 
 workspace.ensure(db)
-workspace.write_file(db, "/workspace/docs/generated.md", "from host adapter")
+conflict = workspace.write_file(db, "/workspace/docs/generated.md", "from host adapter")
+if conflict.get("conflict"):
+    workspace.write_file(db, "/workspace/docs/generated.md", "from host adapter", overwrite=True)
 brief_text = workspace.read_file(db, "/workspace/docs/brief.md")
 doc_files = workspace.read_directory(db, "/workspace/docs")
 workspace.enter_agent_mode(db)
@@ -115,6 +117,7 @@ Required constraints:
 - switch back to `host` mode before direct host-side file reads or writes
 - keep `workspace.flush()` as an explicit end-of-turn durability action
 - in Redis-backed profiles, treat Redis as the runtime source of truth and in-process mirror objects as transaction-local working objects
+- treat overwrite as an explicit confirmation step: `workspace.write_file(..., overwrite=True)` for host writes, `>|` for shell redirects
 
 This keeps Redis-backed workspace state reusable while avoiding stale DB sessions and request-crossing runtime objects.
 

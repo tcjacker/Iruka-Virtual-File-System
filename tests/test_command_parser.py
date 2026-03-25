@@ -20,7 +20,7 @@ class CommandParserTest(unittest.TestCase):
         parsed, error = parse_pipeline_and_redirect("cat a.txt | rg hello > out.txt")
         self.assertIsNone(error)
         self.assertEqual(parsed["pipeline"], [["cat", "a.txt"], ["rg", "hello"]])
-        self.assertEqual(parsed["redirect"], {"op": ">", "path": "out.txt"})
+        self.assertEqual(parsed["redirect"], {"op": ">", "path": "out.txt", "force": False})
 
 
 if __name__ == "__main__":

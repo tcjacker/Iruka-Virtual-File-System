@@ -95,7 +95,7 @@ class VirtualWorkspace:
             tenant_id=self.tenant_id,
         )
 
-    def write_file(self, db: Session, path: str, content: str) -> dict[str, Any]:
+    def write_file(self, db: Session, path: str, content: str, *, overwrite: bool = False) -> dict[str, Any]:
         from iruka_vfs import service
 
         return service.write_workspace_file(
@@ -105,6 +105,7 @@ class VirtualWorkspace:
             content,
             workspace_seed=self.workspace_seed,
             tenant_id=self.tenant_id,
+            overwrite=overwrite,
         )
 
     def read_file(self, db: Session, path: str) -> str:

@@ -283,9 +283,18 @@ workspace.ensure(db)
 workspace.enter_agent_mode(db)
 workspace.bash(db, "cat /workspace/files/demo.md")
 workspace.enter_host_mode(db)
-workspace.write_file(db, "/workspace/files/demo.md", "host-side update")
+conflict = workspace.write_file(db, "/workspace/files/demo.md", "host-side update")
+if conflict.get("conflict"):
+    workspace.write_file(db, "/workspace/files/demo.md", "host-side update", overwrite=True)
 workspace.flush()
 ```
+
+覆盖确认规则：
+
+- `workspace.write_file(db, path, content, overwrite=False)` 默认不会覆盖已存在文件
+- 如果目标文件已存在，会返回结构化冲突 payload，其中包含 `reason="already_exists"` 和 `requires_confirmation=True`
+- shell redirect `>` 也遵循同样规则，遇到已存在文件时失败
+- shell redirect `>|` 才表示显式允许覆盖
 
 ### 4.8 运行时事务语义
 

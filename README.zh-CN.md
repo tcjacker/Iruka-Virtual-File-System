@@ -158,7 +158,9 @@ workspace = create_workspace(
 )
 
 workspace.ensure(db)
-workspace.write_file(db, "/workspace/docs/generated.md", "hello from host")
+conflict = workspace.write_file(db, "/workspace/docs/generated.md", "hello from host")
+if conflict.get("conflict"):
+    workspace.write_file(db, "/workspace/docs/generated.md", "hello from host", overwrite=True)
 content = workspace.read_file(db, "/workspace/docs/brief.md")
 files = workspace.read_directory(db, "/workspace/docs")
 workspace.enter_agent_mode(db)
@@ -176,7 +178,7 @@ workspace.flush()
 除了 `workspace.bash(...)` 以外，宿主也可以直接通过 Python API 管理虚拟 workspace 内的文件。
 
 - `create_workspace(..., workspace_files={path: content, ...})`
-- `workspace.write_file(db, path, content)`
+- `workspace.write_file(db, path, content, overwrite=False)`
 - `workspace.read_file(db, path)`
 - `workspace.read_directory(db, path, recursive=True)`
 - `workspace.enter_agent_mode(db)` / `workspace.enter_host_mode(db)`
@@ -188,8 +190,15 @@ workspace.flush()
 - 路径必须位于 `/workspace` 之内
 - `read_directory(...)` 返回 `{virtual_path: content}` 映射
 - `write_file(...)` 只能在 `host` 模式使用
+- `write_file(...)` 只有在显式传 `overwrite=True` 时才会覆盖已有文件
 - `read_file(...)`、`read_directory(...)` 在 `host` 和 `agent` 模式都可读
 - `workspace.bash(...)` 只能在 `agent` 模式使用
+
+覆盖确认规则：
+
+- `workspace.write_file(...)` 在目标文件已存在且 `overwrite=False` 时，会返回结构化冲突 payload
+- shell redirect `>` 在目标文件已存在时也会失败，并返回结构化冲突 payload
+- shell redirect `>|` 才表示显式允许覆盖
 
 ## Workspace 生命周期
 

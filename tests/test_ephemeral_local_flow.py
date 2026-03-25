@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from iruka_vfs import build_workspace_seed, create_workspace
 from iruka_vfs.dependencies import VFSDependencies, configure_vfs_dependencies
 from iruka_vfs.runtime_seed import RuntimeSeed
 from iruka_vfs.sqlalchemy_models import Base, VFSFileNode, VFSShellCommand, VFSShellSession, VFSWorkspace
@@ -237,6 +238,92 @@ class EphemeralLocalFlowTest(unittest.TestCase):
         self.assertEqual(file_node.content_text, "patched")
         self.assertEqual(int(file_node.version_no), 2)
 
+    def test_host_write_file_requires_overwrite_confirmation(self) -> None:
+        with self.SessionLocal() as db:
+            workspace_row = VFSWorkspace(
+                tenant_id="test-tenant",
+                runtime_key="runtime:local-host-overwrite",
+                metadata_json={},
+            )
+            db.add(workspace_row)
+            db.commit()
+            db.refresh(workspace_row)
+
+            workspace = create_workspace(
+                workspace=workspace_row,
+                tenant_id="test-tenant",
+                workspace_seed=build_workspace_seed(
+                    runtime_key="runtime:local-host-overwrite",
+                    tenant_id="test-tenant",
+                    workspace_files={"/workspace/files/demo.txt": "hello"},
+                ),
+            )
+            workspace.ensure(db)
+            conflict = workspace.write_file(db, "/workspace/files/demo.txt", "host-updated")
+            self.assertFalse(conflict["ok"])
+            self.assertTrue(conflict["conflict"])
+            self.assertEqual(conflict["reason"], "already_exists")
+            self.assertTrue(conflict["requires_confirmation"])
+            self.assertEqual(workspace.read_file(db, "/workspace/files/demo.txt"), "hello")
+
+            written = workspace.write_file(db, "/workspace/files/demo.txt", "host-updated", overwrite=True)
+            self.assertTrue(written["ok"])
+            self.assertEqual(workspace.read_file(db, "/workspace/files/demo.txt"), "host-updated")
+
+    def test_redirect_requires_force_to_overwrite_existing_file(self) -> None:
+        workspace, runtime_seed = self._make_workspace(3021)
+
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            conflict = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "echo replaced > /workspace/files/demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(conflict["exit_code"], 1)
+            self.assertEqual(
+                conflict["stderr"],
+                "redirect: file already exists, retry with overwrite confirmation: /workspace/files/demo.txt",
+            )
+            self.assertEqual(conflict["artifacts"]["reason"], "already_exists")
+            self.assertTrue(conflict["artifacts"]["requires_confirmation"])
+
+            unchanged = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/files/demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(unchanged["stdout"], "hello")
+
+            forced = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "echo replaced >| /workspace/files/demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(forced["exit_code"], 0)
+            updated = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/files/demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(updated["stdout"], "replaced")
+
     def test_patch_unified_conflict_keeps_original_content(self) -> None:
         workspace, runtime_seed = self._make_workspace(303)
 
@@ -314,6 +401,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 "host-updated",
                 workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
+                overwrite=True,
             )
             scope_key = self.workspace_mirror.workspace_scope_for_db(db)
             store = self.service_state.get_workspace_state_store()

@@ -222,9 +222,18 @@ workspace.ensure(db)
 workspace.enter_agent_mode(db)
 workspace.bash(db, "cat /workspace/files/demo.md")
 workspace.enter_host_mode(db)
-workspace.write_file(db, "/workspace/files/demo.md", "host-side update")
+conflict = workspace.write_file(db, "/workspace/files/demo.md", "host-side update")
+if conflict.get("conflict"):
+    workspace.write_file(db, "/workspace/files/demo.md", "host-side update", overwrite=True)
 workspace.flush()
 ```
+
+Overwrite confirmation rules:
+
+- `workspace.write_file(db, path, content, overwrite=False)` does not overwrite an existing file by default
+- if the file already exists, it returns a structured conflict payload with `reason="already_exists"` and `requires_confirmation=True`
+- shell redirect `>` follows the same rule and fails on existing files
+- shell redirect `>|` is the explicit overwrite form
 
 ### 4.8 Runtime Transaction Semantics
 

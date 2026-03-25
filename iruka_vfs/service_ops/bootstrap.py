@@ -233,7 +233,10 @@ def seed_workspace_file(
     *,
     op: str,
     overwrite_existing: bool = True,
+    conflict_if_exists: bool = False,
 ) -> dict[str, Any]:
+    from iruka_vfs.write_conflicts import build_overwrite_conflict
+
     normalized = normalize_workspace_path(path, require_file=True)
     parent_path, _, name = normalized.rpartition("/")
     parent = ensure_virtual_dir_path(db, workspace_id, parent_path or "/")
@@ -247,9 +250,21 @@ def seed_workspace_file(
         created = True
 
     version_no = get_node_version(db, node)
+    if not overwrite_existing and not created:
+        if conflict_if_exists:
+            conflict = build_overwrite_conflict(normalized, source="host_write")
+            conflict["version"] = int(version_no)
+            conflict["created"] = False
+            return conflict
+        return {
+            "path": normalized,
+            "version": int(version_no),
+            "created": False,
+        }
     if overwrite_existing and not created and get_node_content(db, node) != content:
         version_no = write_file(db, node, content, op=op)
     return {
+        "ok": True,
         "path": normalized,
         "version": int(version_no),
         "created": created,

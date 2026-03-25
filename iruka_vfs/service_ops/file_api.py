@@ -50,6 +50,7 @@ def write_workspace_file(
     *,
     workspace_seed: WorkspaceSeed,
     tenant_id: str | None = None,
+    overwrite: bool = False,
 ) -> dict[str, Any]:
     tenant_key = assert_workspace_tenant(workspace, tenant_id)
     scope_key = workspace_scope_for_db(db)
@@ -68,7 +69,15 @@ def write_workspace_file(
         allowed, deny_reason = allow_write_path(db, session, normalized)
         if not allowed:
             raise PermissionError(f"write_file: {deny_reason}")
-        return seed_workspace_file(db, int(workspace.id), normalized, content, op="python_write_file")
+        return seed_workspace_file(
+            db,
+            int(workspace.id),
+            normalized,
+            content,
+            op="python_write_file",
+            overwrite_existing=overwrite,
+            conflict_if_exists=True,
+        )
     finally:
         set_active_workspace_tenant(None)
         set_active_workspace_scope(None)

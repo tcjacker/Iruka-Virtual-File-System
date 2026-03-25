@@ -60,7 +60,9 @@ workspace = create_workspace(
 )
 
 workspace.ensure(db)
-workspace.write_file(db, "/workspace/docs/generated.md", "from host adapter")
+conflict = workspace.write_file(db, "/workspace/docs/generated.md", "from host adapter")
+if conflict.get("conflict"):
+    workspace.write_file(db, "/workspace/docs/generated.md", "from host adapter", overwrite=True)
 brief_text = workspace.read_file(db, "/workspace/docs/brief.md")
 doc_files = workspace.read_directory(db, "/workspace/docs")
 workspace.enter_agent_mode(db)
@@ -114,6 +116,7 @@ workspace.flush()
 - 需要宿主直接读写文件前，先切回 `host` 模式
 - 把 `workspace.flush()` 作为显式的持久化动作
 - 在 Redis profile 下，把 Redis 视为运行态唯一事实来源，把进程内 mirror 对象视为事务内的临时工作对象
+- 把覆盖也视为显式确认动作：宿主写入用 `workspace.write_file(..., overwrite=True)`，shell redirect 用 `>|`
 
 这样可以在复用 Redis workspace 状态的同时，避免 stale session 和跨请求运行时对象带来的问题。
 
