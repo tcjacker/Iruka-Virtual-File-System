@@ -645,9 +645,24 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 ],
             )
 
-    def test_ls_common_flags_degrade_to_plain_ls(self) -> None:
+    def test_ls_long_format_shows_file_types(self) -> None:
         with self.SessionLocal() as db:
             workspace, runtime_seed = self._prepare_agent_workspace(db, 316)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "ls -l /workspace",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertIn("dir  size=0 version=1 mtime=", result["stdout"])
+            self.assertIn("files/", result["stdout"])
+            self.assertEqual(result["artifacts"]["flags"], ["-l"])
+
+    def test_ls_la_long_format_shows_file_entries(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 318)
             result = self.file_api.run_virtual_bash(
                 db,
                 workspace,
@@ -656,6 +671,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 tenant_id="test-tenant",
             )
             self.assertEqual(result["exit_code"], 0)
+            self.assertIn("file size=5 version=1 mtime=", result["stdout"])
             self.assertIn("demo.txt", result["stdout"])
             self.assertEqual(result["artifacts"]["flags"], ["-la"])
 

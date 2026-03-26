@@ -128,6 +128,7 @@ configure_vfs_dependencies(
 
 只能通过 workspace.bash(db, "...") 使用这些命令：
 pwd, cd, ls, cat, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
+需要查看类型/大小/版本号/修改时间时，使用 `ls -l`。
 
 写入规则：
 - 只能写 /workspace 下的路径

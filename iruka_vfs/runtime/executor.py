@@ -15,6 +15,7 @@ Supported commands:
 - pwd
 - cd <path>
 - ls [path]
+  ls -l / ls -la also work and show type, size, version, and mtime
 - cat <file>
 - rg <pattern> [path]
 - grep <pattern> [path]
@@ -168,10 +169,12 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, target)
         if not node:
             return VirtualCommandResult("", f"ls: cannot access '{target}': No such file or directory", 1, {})
+        long_format = bool(flags & {"-l", "-la", "-al"})
         if node.node_type == "file":
-            return VirtualCommandResult(node.name, "", 0, {"path": service._node_path(db, node), "flags": sorted(flags)})
+            label = _format_ls_entry(node, long_format=long_format)
+            return VirtualCommandResult(label, "", 0, {"path": service._node_path(db, node), "flags": sorted(flags)})
         children = service._list_children(db, session.workspace_id, node.id)
-        listing = [f"{item.name}/" if item.node_type == "dir" else item.name for item in children]
+        listing = [_format_ls_entry(item, long_format=long_format) for item in children]
         return VirtualCommandResult(
             "\n".join(listing),
             "",
@@ -262,6 +265,23 @@ def _mutate_cd(mirror, cwd_node_id: int):
     mirror.dirty_session = True
     mirror.revision += 1
     return True, True
+
+
+def _format_ls_entry(node, *, long_format: bool) -> str:
+    display_name = f"{node.name}/" if node.node_type == "dir" else node.name
+    if not long_format:
+        return display_name
+    type_label = "dir" if node.node_type == "dir" else "file"
+    size_bytes = len(getattr(node, "content_text", "") or "") if node.node_type == "file" else 0
+    version_no = int(getattr(node, "version_no", 1) or 1)
+    updated_at = _format_ls_timestamp(getattr(node, "updated_at", None))
+    return f"{type_label:<4} size={size_bytes} version={version_no} mtime={updated_at} {display_name}"
+
+
+def _format_ls_timestamp(value: datetime | None) -> str:
+    if not isinstance(value, datetime):
+        return "-"
+    return value.strftime("%Y-%m-%dT%H:%M:%S")
 
 
 def apply_redirect(db: Session, session, *, output_text: str, redirect: dict[str, str]) -> VirtualCommandResult:

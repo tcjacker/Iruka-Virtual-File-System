@@ -172,6 +172,7 @@ The virtual shell is intentionally small. Current supported commands are:
 - `pwd`
 - `cd`
 - `ls`
+  `ls -l` / `ls -la` show `type`, `size`, `version`, and `mtime`
 - `cat`
 - `rg`
 - `grep`
@@ -193,6 +194,7 @@ You are in a virtual workspace, not a full OS shell.
 
 Use workspace.bash(db, "...") with only these commands:
 pwd, cd, ls, cat, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
+Use `ls -l` when you need type/size/version/mtime.
 
 Write rules:
 - stay under /workspace

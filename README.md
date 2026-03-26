@@ -125,6 +125,7 @@ You are in a virtual workspace, not a full OS shell.
 
 Use workspace.bash(db, "...") with only these commands:
 pwd, cd, ls, cat, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
+Use `ls -l` when you need type/size/version/mtime.
 
 Write rules:
 - stay under /workspace
