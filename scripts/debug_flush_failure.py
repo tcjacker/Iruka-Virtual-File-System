@@ -32,8 +32,10 @@ def main() -> None:
         runtime_key=tenant + ":1",
         file_index=1,
         chapter_text=mod.render_size_target(4096),
-        context_files={"outline.md": "x"},
-        skill_files={"style.md": "y"},
+        workspace_files={
+            "/workspace/docs/outline.md": "x",
+            "/workspace/docs/style.md": "y",
+        },
     )
 
     import iruka_vfs.runtime_state as runtime_state
@@ -44,7 +46,7 @@ def main() -> None:
     print("checkpoint_worker_before", runtime_state.workspace_checkpoint_worker_started)
 
     with session_local() as db:
-        result = ws.handle.bash(db, "echo x > /workspace/notes/a.txt")
+        result = ws.handle.bash(db, "echo x > /workspace/runtime/a.txt")
         print("bash_result", json.dumps(result, ensure_ascii=False))
 
     print("checkpoint_session_after_bash", runtime_state.workspace_checkpoint_session_maker is not None)

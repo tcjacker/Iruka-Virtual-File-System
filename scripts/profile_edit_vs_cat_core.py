@@ -65,13 +65,15 @@ def run_case(*, enable_checkpoint: bool) -> dict[str, object]:
         runtime_key=tenant + ":1",
         file_index=1,
         chapter_text=module.render_size_target(64 * 1024, marker_count=128),
-        context_files={"outline.md": "benchmark marker\n"},
-        skill_files={"style.md": "keep edits deterministic\n"},
+        workspace_files={
+            "/workspace/docs/outline.md": "benchmark marker\n",
+            "/workspace/docs/style.md": "keep edits deterministic\n",
+        },
     )
 
     cat_samples: list[float] = []
     edit_samples: list[float] = []
-    chapter_path = "/workspace/chapters/chapter_1.md"
+    chapter_path = "/workspace/files/document_1.md"
     for i in range(12):
         with session_local() as db:
             started = time.perf_counter()

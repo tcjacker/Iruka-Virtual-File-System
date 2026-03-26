@@ -64,11 +64,13 @@ def main() -> None:
             runtime_key=tenant + ":1",
             file_index=1,
             chapter_text=module.render_size_target(chapter_bytes, marker_count=128),
-            context_files={"outline.md": "benchmark marker\n"},
-            skill_files={"style.md": "keep edits deterministic\n"},
+            workspace_files={
+                "/workspace/docs/outline.md": "benchmark marker\n",
+                "/workspace/docs/style.md": "keep edits deterministic\n",
+            },
         )
 
-        chapter_path = "/workspace/chapters/chapter_1.md"
+        chapter_path = "/workspace/files/document_1.md"
         samples: list[float] = []
         for i in range(12):
             with session_local() as db:

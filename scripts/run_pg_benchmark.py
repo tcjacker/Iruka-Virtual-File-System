@@ -22,7 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from iruka_vfs import WritableFileSource, create_workspace
+from iruka_vfs import build_workspace_seed, create_workspace
 from iruka_vfs.dependencies import VFSDependencies, configure_vfs_dependencies
 
 
@@ -367,8 +367,7 @@ def prepare_workspace(
     runtime_key: str,
     file_index: int,
     chapter_text: str,
-    context_files: dict[str, str],
-    skill_files: dict[str, str],
+    workspace_files: dict[str, str] | None = None,
 ) -> BenchmarkWorkspace:
     chapter_store = MutableText(chapter_text)
     with session_factory() as db:
@@ -386,16 +385,14 @@ def prepare_workspace(
         handle = create_workspace(
             workspace=workspace_row,
             tenant_id=tenant_id,
-            runtime_key=runtime_key,
-            primary_file=WritableFileSource(
-                file_id=f"file:{file_index}",
-                virtual_path=f"/workspace/files/document_{file_index}.md",
-                read_text=chapter_store.read,
-                write_text=chapter_store.write,
-                metadata={"source_type": "benchmark"},
+            workspace_seed=build_workspace_seed(
+                runtime_key=runtime_key,
+                tenant_id=tenant_id,
+                workspace_files={
+                    f"/workspace/files/document_{file_index}.md": chapter_store.read(),
+                    **(workspace_files or {}),
+                },
             ),
-            context_files=context_files,
-            skill_files=skill_files,
         )
         handle.ensure(db, include_tree=False)
         handle.enter_agent_mode(db)
@@ -442,8 +439,8 @@ def workspace_job(session_factory: sessionmaker, bench_workspace: BenchmarkWorks
         "cat /workspace/files/document_1.md",
         "wc /workspace/files/document_1.md",
         "rg marker /workspace",
-        "echo worker-note > /workspace/notes/worker_note.txt",
-        "cat /workspace/notes/worker_note.txt",
+        "echo worker-note > /workspace/runtime/worker_note.txt",
+        "cat /workspace/runtime/worker_note.txt",
         "__edit_chapter__",
     ]
     for i in range(commands_per_workspace):
@@ -501,7 +498,7 @@ def finalize_latency_suite(
         f"cat {chapter_path}",
         f"rg marker {chapter_path}",
         f"wc {chapter_path}",
-        "echo warmup > /workspace/notes/warmup.txt",
+        "echo warmup > /workspace/runtime/warmup.txt",
     ]
     for command in warmup_commands:
         command_latency_ms(session_factory, bench_workspace.handle, command, warmup_iterations)
@@ -513,9 +510,9 @@ def finalize_latency_suite(
 
     note_samples: list[float] = []
     for i in range(latency_iterations):
-        command = f"echo payload-{i} > /workspace/notes/note_{i}.txt"
+        command = f"echo payload-{i} > /workspace/runtime/note_{i}.txt"
         note_samples.extend(command_latency_ms(session_factory, bench_workspace.handle, command, 1))
-    results.append(summarize_latencies("write_note_redirect", note_samples))
+    results.append(summarize_latencies("write_runtime_redirect", note_samples))
 
     edit_samples: list[float] = []
     for i in range(latency_iterations):
@@ -645,12 +642,10 @@ def main() -> None:
     tenant_stamp = started_at.strftime("%Y%m%dT%H%M%SZ")
     tenant_root = f"{args.tenant_prefix}_{tenant_stamp}"
     chapter_text = render_size_target(args.chapter_bytes, marker_count=max(args.latency_iterations + 8, 256))
-    context_files = {
-        "outline.md": "# Outline\n\nbenchmark marker\n" * 16,
-        "facts.md": "benchmark marker facts\n" * 32,
-    }
-    skill_files = {
-        "style.md": "# Style\n\nKeep benchmark marker intact.\n",
+    workspace_files = {
+        "/workspace/docs/outline.md": "# Outline\n\nbenchmark marker\n" * 16,
+        "/workspace/docs/facts.md": "benchmark marker facts\n" * 32,
+        "/workspace/docs/style.md": "# Style\n\nKeep benchmark marker intact.\n",
     }
 
     primary_workspace = prepare_workspace(
@@ -659,8 +654,7 @@ def main() -> None:
         runtime_key=f"{tenant_root}:primary",
         file_index=1,
         chapter_text=chapter_text,
-        context_files=context_files,
-        skill_files=skill_files,
+        workspace_files=workspace_files,
     )
 
     for _ in range(args.warmup_iterations):
@@ -686,8 +680,7 @@ def main() -> None:
             runtime_key=f"{tenant_root}:worker:{i}",
             file_index=i + 1,
             chapter_text=chapter_text,
-            context_files=context_files,
-            skill_files=skill_files,
+            workspace_files=workspace_files,
         )
         for i in range(args.workspace_count)
     ]
