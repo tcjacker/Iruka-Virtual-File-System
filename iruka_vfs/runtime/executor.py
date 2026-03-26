@@ -154,15 +154,30 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         return VirtualCommandResult("", "", 0, {"cwd": service._node_path(db, node)})
 
     if name == "ls":
-        target = args[0] if args else "."
+        flags = {arg for arg in args if arg.startswith("-")}
+        targets = [arg for arg in args if not arg.startswith("-")]
+        unsupported_flags = sorted(flag for flag in flags if flag not in {"-l", "-a", "-la", "-al"})
+        if unsupported_flags:
+            return VirtualCommandResult(
+                "",
+                f"ls: unsupported option: {unsupported_flags[0]}",
+                1,
+                {"unsupported_option": unsupported_flags[0]},
+            )
+        target = targets[0] if targets else "."
         node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, target)
         if not node:
             return VirtualCommandResult("", f"ls: cannot access '{target}': No such file or directory", 1, {})
         if node.node_type == "file":
-            return VirtualCommandResult(node.name, "", 0, {"path": service._node_path(db, node)})
+            return VirtualCommandResult(node.name, "", 0, {"path": service._node_path(db, node), "flags": sorted(flags)})
         children = service._list_children(db, session.workspace_id, node.id)
         listing = [f"{item.name}/" if item.node_type == "dir" else item.name for item in children]
-        return VirtualCommandResult("\n".join(listing), "", 0, {"path": service._node_path(db, node), "count": len(listing)})
+        return VirtualCommandResult(
+            "\n".join(listing),
+            "",
+            0,
+            {"path": service._node_path(db, node), "count": len(listing), "flags": sorted(flags)},
+        )
 
     if name == "cat":
         if not args:

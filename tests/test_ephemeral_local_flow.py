@@ -645,6 +645,33 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 ],
             )
 
+    def test_ls_common_flags_degrade_to_plain_ls(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 316)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "ls -la /workspace/files",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertIn("demo.txt", result["stdout"])
+            self.assertEqual(result["artifacts"]["flags"], ["-la"])
+
+    def test_ls_rejects_unknown_option_explicitly(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 317)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "ls -R /workspace/files",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 1)
+            self.assertEqual(result["stderr"], "ls: unsupported option: -R")
+
     def test_parse_error_is_returned_for_missing_redirect_target(self) -> None:
         with self.SessionLocal() as db:
             workspace, runtime_seed = self._prepare_agent_workspace(db, 310)
