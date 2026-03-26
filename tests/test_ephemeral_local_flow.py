@@ -324,6 +324,37 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             )
             self.assertEqual(updated["stdout"], "replaced")
 
+    def test_heredoc_redirect_creates_file(self) -> None:
+        workspace, runtime_seed = self._make_workspace(3022)
+
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "mkdir -p /workspace/characters && cat <<'EOF' > /workspace/characters/ch1.md\n# 第一章\n\n（在此处开始撰写小说内容）\nEOF",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+
+            created = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/characters/ch1.md",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(created["stdout"], "# 第一章\n\n（在此处开始撰写小说内容）")
+
     def test_patch_unified_conflict_keeps_original_content(self) -> None:
         workspace, runtime_seed = self._make_workspace(303)
 

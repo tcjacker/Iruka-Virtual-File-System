@@ -131,6 +131,8 @@ Write rules:
 - > does not overwrite existing files
 - >| overwrites explicitly
 - >> appends
+- for multi-line file creation, you may use: cat <<'EOF' > /workspace/file ... EOF
+- do not generate real-shell extras such as: ||, <, <<<, 1>, 2>, &>, $(...), `...`
 
 If you are unsure what is supported, run: help
 ```

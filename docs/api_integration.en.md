@@ -199,6 +199,8 @@ Write rules:
 - > does not overwrite existing files
 - >| overwrites explicitly
 - >> appends
+- for multi-line file creation, you may use: cat <<'EOF' > /workspace/file ... EOF
+- do not generate real-shell extras such as: ||, <, <<<, 1>, 2>, &>, $(...), `...`
 
 If you are unsure what is supported, run: help
 ```
@@ -276,6 +278,7 @@ Overwrite confirmation rules:
 - if the file already exists, it returns a structured conflict payload with `reason="already_exists"` and `requires_confirmation=True`
 - shell redirect `>` follows the same rule and fails on existing files
 - shell redirect `>|` is the explicit overwrite form
+- limited heredoc is supported for stdin-style multi-line writes such as `cat <<'EOF' > /workspace/file ... EOF`
 - `help` prints the current shell surface and these write rules inside the agent runtime
 
 ### 4.8 Runtime Transaction Semantics

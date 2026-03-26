@@ -33,7 +33,13 @@ Write rules:
 - > creates or writes a file but does not overwrite an existing file
 - >| overwrites an existing file explicitly
 - >> appends to an existing file
+- Limited heredoc is supported, for example: cat <<'EOF' > /workspace/file ... EOF
 - Use host write_file(..., overwrite=True) or shell >| only after confirmation
+
+Do not use unsupported shell syntax such as:
+- ||
+- <, <<<, 1>, 2>, &>
+- $(...) or `...`
 """
 
 
@@ -77,7 +83,7 @@ def run_single_command(db: Session, session, cmd: str) -> VirtualCommandResult:
     pipeline = parsed.get("pipeline") or []
     redirect = parsed.get("redirect")
     merge_stderr = bool(parsed.get("merge_stderr"))
-    input_text = ""
+    input_text = str(parsed.get("stdin_text") or "")
     pipeline_artifacts: list[dict[str, Any]] = []
     last_result = VirtualCommandResult("", "", 0, {})
 
@@ -224,6 +230,7 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
                     "help",
                 ],
                 "redirects": [">", ">|", ">>"],
+                "heredoc": {"supported": True, "pattern": "cat <<'EOF' > /workspace/file ... EOF"},
                 "write_root": "/workspace",
             },
         )

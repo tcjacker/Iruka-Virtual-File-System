@@ -6,6 +6,10 @@ from typing import Any
 
 
 def split_chain(raw_cmd: str) -> list[dict[str, str]]:
+    heredoc_cmd = _split_chain_with_heredoc(raw_cmd)
+    if heredoc_cmd is not None:
+        return heredoc_cmd
+
     tokens = re.split(r"\s*(&&|;)\s*", raw_cmd.strip())
     if len(tokens) == 1:
         return [{"op": ";", "cmd": raw_cmd.strip()}]
@@ -24,6 +28,14 @@ def split_chain(raw_cmd: str) -> list[dict[str, str]]:
 
 
 def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
+    unsupported_error = _detect_unsupported_shell_syntax(cmd)
+    if unsupported_error:
+        return {}, unsupported_error
+
+    cmd, stdin_text, heredoc_error = _extract_heredoc(cmd)
+    if heredoc_error:
+        return {}, heredoc_error
+
     try:
         tokens = list(shell_tokens(cmd))
     except ValueError as exc:
@@ -68,7 +80,7 @@ def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
         pipeline.append(current)
     if not pipeline:
         return {}, "parse error: empty command"
-    return {"pipeline": pipeline, "redirect": redirect, "merge_stderr": merge_stderr}, None
+    return {"pipeline": pipeline, "redirect": redirect, "merge_stderr": merge_stderr, "stdin_text": stdin_text}, None
 
 
 def shell_tokens(cmd: str) -> list[str]:
@@ -124,3 +136,103 @@ def parse_options(args: list[str]) -> dict[str, Any]:
         values.setdefault("_", []).append(token)
         idx += 1
     return values
+
+
+def _split_chain_with_heredoc(raw_cmd: str) -> list[dict[str, str]] | None:
+    if "<<" not in raw_cmd:
+        return None
+    lines = raw_cmd.splitlines(keepends=True)
+    if not lines:
+        return None
+    header = lines[0].rstrip("\r\n")
+    if "<<" not in header:
+        return None
+
+    tokens = re.split(r"\s*(&&|;)\s*", header.strip())
+    if len(tokens) == 1:
+        return [{"op": ";", "cmd": raw_cmd.strip()}]
+
+    pieces: list[dict[str, str]] = []
+    current_op = ";"
+    command_tokens: list[str] = []
+    for token in tokens:
+        token = token.strip()
+        if not token:
+            continue
+        if token in {"&&", ";"}:
+            current_op = token
+            continue
+        command_tokens.append(token)
+        pieces.append({"op": current_op, "cmd": token})
+    if not pieces:
+        return [{"op": ";", "cmd": raw_cmd.strip()}]
+
+    pieces[-1]["cmd"] = pieces[-1]["cmd"] + ("\n" + "".join(lines[1:]) if len(lines) > 1 else "")
+    return pieces
+
+
+def _extract_heredoc(cmd: str) -> tuple[str, str, str | None]:
+    if "<<" not in cmd:
+        return cmd, "", None
+
+    lines = cmd.splitlines(keepends=True)
+    if not lines:
+        return cmd, "", None
+    header = lines[0].rstrip("\r\n")
+    match = re.search(r"<<\s*(?:'([^']+)'|\"([^\"]+)\"|([^\s|;&>]+))", header)
+    if not match:
+        return "", "", "parse error: invalid heredoc syntax"
+
+    delimiter = next(group for group in match.groups() if group is not None)
+    header_without_heredoc = (header[: match.start()] + header[match.end() :]).strip()
+    body_lines = lines[1:]
+    collected: list[str] = []
+    terminator_found = False
+    for line in body_lines:
+        if line.rstrip("\r\n") == delimiter:
+            terminator_found = True
+            break
+        collected.append(line)
+    if not terminator_found:
+        return "", "", f"parse error: heredoc terminator not found: {delimiter}"
+    if "<<" in header_without_heredoc:
+        return "", "", "parse error: multiple heredocs are not supported"
+    return header_without_heredoc, "".join(collected), None
+
+
+def _detect_unsupported_shell_syntax(cmd: str) -> str | None:
+    stripped = cmd.strip()
+    if not stripped:
+        return None
+    if "||" in stripped:
+        return "parse error: || is not supported; use && or ;"
+    if "$(" in stripped or "`" in stripped:
+        return "parse error: command substitution is not supported; use plain commands only"
+    if "<<<" in stripped:
+        return "parse error: here-string redirect <<< is not supported"
+    if "&>" in stripped:
+        return "parse error: &> redirect is not supported; only >, >>, >|, and 2>&1 are supported"
+    if re.search(r"(^|[^0-9])(?:1>|2>)", stripped):
+        return "parse error: 1>/2> redirects are not supported; only >, >>, >|, and 2>&1 are supported"
+    if _contains_plain_input_redirect(stripped):
+        return "parse error: input redirect < is not supported"
+    return None
+
+
+def _contains_plain_input_redirect(cmd: str) -> bool:
+    idx = 0
+    while idx < len(cmd):
+        char = cmd[idx]
+        if char != "<":
+            idx += 1
+            continue
+        next_char = cmd[idx + 1] if idx + 1 < len(cmd) else ""
+        prev_char = cmd[idx - 1] if idx > 0 else ""
+        if next_char == "<":
+            idx += 2
+            continue
+        if prev_char == "<":
+            idx += 1
+            continue
+        return True
+    return False

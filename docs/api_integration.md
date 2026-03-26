@@ -260,6 +260,8 @@ pwd, cd, ls, cat, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
 - > 不会覆盖已有文件
 - >| 才表示显式覆盖
 - >> 表示追加
+- 多行写文件时可以使用：cat <<'EOF' > /workspace/file ... EOF
+- 不要生成真实 shell 扩展语法：||、<、<<<、1>、2>、&>、$(...)、`...`
 
 如果不确定支持什么，先执行：help
 ```
@@ -337,6 +339,7 @@ workspace.flush()
 - 如果目标文件已存在，会返回结构化冲突 payload，其中包含 `reason="already_exists"` 和 `requires_confirmation=True`
 - shell redirect `>` 也遵循同样规则，遇到已存在文件时失败
 - shell redirect `>|` 才表示显式允许覆盖
+- 当前支持受限 heredoc，用于 stdin 风格的多行写入，例如 `cat <<'EOF' > /workspace/file ... EOF`
 - `help` 会在 agent 运行时打印当前支持的命令面和这些写入规则
 
 ### 4.8 运行时事务语义

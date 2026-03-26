@@ -134,6 +134,8 @@ pwd, cd, ls, cat, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
 - > 不会覆盖已有文件
 - >| 才表示显式覆盖
 - >> 表示追加
+- 多行写文件时可以使用：cat <<'EOF' > /workspace/file ... EOF
+- 不要生成真实 shell 扩展语法：||、<、<<<、1>、2>、&>、$(...)、`...`
 
 如果不确定支持什么，先执行：help
 ```
