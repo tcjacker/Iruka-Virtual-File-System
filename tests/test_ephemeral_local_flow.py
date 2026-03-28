@@ -504,7 +504,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["exit_code"], 1)
             self.assertEqual(
                 result["stderr"],
-                "patch: /workspace/files/missing.txt: No such file. Try: find /workspace -name missing.txt or tree",
+                "patch: /workspace/files/missing.txt: No such file. Try: find /workspace -name missing.txt -> cat -> edit/patch, or inspect tree",
             )
 
     def test_cat_missing_file_suggests_next_step(self) -> None:
@@ -520,7 +520,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["exit_code"], 1)
             self.assertEqual(
                 result["stderr"],
-                "cat: /workspace/brief.md: No such file. Try: find /workspace -name brief.md or tree",
+                "cat: /workspace/brief.md: No such file. Try: find /workspace -name brief.md -> cat -> edit/patch, or inspect tree",
             )
 
     def test_cat_missing_file_suggests_unique_existing_path(self) -> None:
@@ -558,7 +558,8 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 result["stderr"],
                 "cat: /workspace/brief.md: No such file. "
                 "Most likely existing path: /workspace/docs/brief.md. "
-                "Try: cat /workspace/docs/brief.md",
+                "Try: cat /workspace/docs/brief.md. "
+                "Do not recreate /workspace/brief.md when that exact file already exists elsewhere.",
             )
 
     def test_edit_requires_find_replace_shows_example(self) -> None:
@@ -793,6 +794,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertIn("- cp <source> <target>", result["stdout"])
             self.assertIn("- mv <source> <target>", result["stdout"])
             self.assertIn("- rm <file>", result["stdout"])
+            self.assertIn("- head [-n <count>] [file...]", result["stdout"])
             self.assertIn("- sort [file...]", result["stdout"])
             self.assertIn(">| overwrites an existing file explicitly", result["stdout"])
             self.assertIn("find /workspace -name <file> -> cat -> edit/patch", result["stdout"])
@@ -813,6 +815,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                     "cp",
                     "mv",
                     "rm",
+                    "head",
                     "sort",
                     "basename",
                     "dirname",
@@ -841,6 +844,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertIn("Known files:\n- /workspace/files/demo.txt", result["workspace_bootstrap"])
             self.assertEqual(result["workspace_bootstrap"], result["artifacts"]["workspace_bootstrap"])
             self.assertIn("find /workspace -name <file>", result["discovery_hint"])
+            self.assertIn("Prefer exact known paths from workspace_bootstrap", result["discovery_hint"])
             self.assertEqual(result["discovery_hint"], result["artifacts"]["discovery_hint"])
 
     def test_find_locates_paths_by_filename(self) -> None:
@@ -1100,6 +1104,72 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["exit_code"], 0)
             self.assertEqual(result["stdout"], "alpha\nbeta\nzeta")
 
+    def test_head_reads_first_lines_from_file(self) -> None:
+        workspace = VFSWorkspace(
+            id=32571,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-32571",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-32571",
+            tenant_id="test-tenant",
+            workspace_files={"/workspace/files/demo.txt": "one\ntwo\nthree\nfour\n"},
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "head -n 2 /workspace/files/demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["stdout"], "one\ntwo")
+
+    def test_head_reads_first_lines_from_pipeline(self) -> None:
+        workspace = VFSWorkspace(
+            id=32572,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-32572",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-32572",
+            tenant_id="test-tenant",
+            workspace_files={"/workspace/files/demo.txt": "one\ntwo\nthree\nfour\n"},
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/files/demo.txt | head -n 3",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["stdout"], "one\ntwo\nthree")
+
     def test_sort_sorts_file_lines(self) -> None:
         workspace = VFSWorkspace(
             id=3258,
@@ -1264,6 +1334,36 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertTrue(result["artifacts"]["ignored_error"])
             self.assertEqual(result["artifacts"]["or_fallback"], ["true"])
 
+    def test_here_string_feeds_stdin_for_search_commands(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 31011)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "grep beta <<< 'alpha beta gamma'",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["stdout"], "alpha beta gamma")
+
+    def test_here_string_reports_actionable_error_for_command_substitution(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 31012)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "grep demo <<< $(cat /workspace/files/demo.txt)",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 2)
+            self.assertEqual(
+                result["stderr"],
+                "parse error: here-string command substitution is not supported. "
+                "Use `cat <file> | <command>`, `echo <text> | <command>`, or `cat <<'EOF' | <command>` instead.",
+            )
+
     def test_stderr_devnull_suppresses_error_output(self) -> None:
         with self.SessionLocal() as db:
             workspace, runtime_seed = self._prepare_agent_workspace(db, 3102)
@@ -1290,7 +1390,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["exit_code"], 0)
             self.assertEqual(
                 result["stderr"],
-                "cat: /workspace/files/missing.txt: No such file. Try: find /workspace -name missing.txt or tree",
+                "cat: /workspace/files/missing.txt: No such file. Try: find /workspace -name missing.txt -> cat -> edit/patch, or inspect tree",
             )
             self.assertEqual(result["artifacts"]["or_fallback"], [":"])
 

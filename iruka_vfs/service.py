@@ -33,6 +33,7 @@ from iruka_vfs.runtime import (
     exec_dirname as _exec_dirname,
     exec_edit as _exec_edit,
     exec_find as _exec_find,
+    exec_head as _exec_head,
     exec_mkdir as _exec_mkdir,
     exec_mv as _exec_mv,
     exec_patch as _exec_patch,

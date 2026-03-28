@@ -27,6 +27,7 @@ Supported commands:
 - cp <source> <target>
 - mv <source> <target>
 - rm <file>
+- head [-n <count>] [file...]
 - sort [file...]
 - basename <path>
 - dirname <path>
@@ -335,6 +336,8 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         return service._exec_mv(db, session, args)
     if name == "rm":
         return service._exec_rm(db, session, args)
+    if name == "head":
+        return service._exec_head(db, session, args, input_text=input_text)
     if name == "sort":
         return service._exec_sort(db, session, args, input_text=input_text)
     if name == "basename":
@@ -371,6 +374,7 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
                     "cp",
                     "mv",
                     "rm",
+                    "head",
                     "sort",
                     "basename",
                     "dirname",

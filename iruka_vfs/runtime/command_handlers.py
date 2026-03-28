@@ -6,6 +6,7 @@ from iruka_vfs.runtime.fs_commands import (
     exec_basename,
     exec_cp,
     exec_dirname,
+    exec_head,
     exec_mkdir,
     exec_mv,
     exec_rm,

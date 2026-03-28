@@ -72,6 +72,9 @@ def split_chain(raw_cmd: str) -> list[dict[str, str]]:
 
 def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
     cmd, compat = _extract_compatible_shell_tails(cmd)
+    cmd, here_string_text, here_string_error = _extract_here_string(cmd)
+    if here_string_error:
+        return {}, here_string_error
     unsupported_error = _detect_unsupported_shell_syntax(cmd)
     if unsupported_error:
         return {}, unsupported_error
@@ -133,7 +136,7 @@ def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
         "discard_stderr": discard_stderr,
         "ignore_error": ignore_error,
         "or_fallback": compat["or_fallback"],
-        "stdin_text": stdin_text,
+        "stdin_text": stdin_text or here_string_text,
     }, None
 
 
@@ -259,6 +262,34 @@ def _extract_heredoc(cmd: str) -> tuple[str, str, str | None]:
     return header_without_heredoc, "".join(collected), None
 
 
+def _extract_here_string(cmd: str) -> tuple[str, str, str | None]:
+    split_idx = _top_level_here_string_index(cmd)
+    if split_idx is None:
+        return cmd, "", None
+
+    primary = cmd[:split_idx].rstrip()
+    raw_rhs = cmd[split_idx + 3 :].strip()
+    if not primary:
+        return "", "", "parse error: here-string redirect <<< is missing a command before it"
+    if not raw_rhs:
+        return "", "", "parse error: here-string redirect <<< is missing input text"
+    if "$(" in raw_rhs or "`" in raw_rhs:
+        return (
+            "",
+            "",
+            "parse error: here-string command substitution is not supported. "
+            "Use `cat <file> | <command>`, `echo <text> | <command>`, or `cat <<'EOF' | <command>` instead.",
+        )
+
+    try:
+        parts = list(shlex.split(raw_rhs, posix=True))
+    except ValueError as exc:
+        return "", "", f"parse error: invalid here-string text: {exc}"
+    if not parts:
+        return "", "", "parse error: here-string redirect <<< is missing input text"
+    return primary, " ".join(parts) + "\n", None
+
+
 def _detect_unsupported_shell_syntax(cmd: str) -> str | None:
     stripped = cmd.strip()
     if not stripped:
@@ -272,7 +303,10 @@ def _detect_unsupported_shell_syntax(cmd: str) -> str | None:
     if "$(" in stripped or "`" in stripped:
         return "parse error: command substitution is not supported; use plain commands only"
     if "<<<" in stripped:
-        return "parse error: here-string redirect <<< is not supported"
+        return (
+            "parse error: unsupported here-string redirect <<<. "
+            "Use `echo <text> | <command>`, `cat <file> | <command>`, or `cat <<'EOF' | <command>` instead."
+        )
     if "&>" in stripped:
         return "parse error: &> redirect is not supported; only >, >>, >|, and 2>&1 are supported"
     if re.search(r"(^|[^0-9])(?:1>|2>)", stripped):
@@ -370,6 +404,35 @@ def _top_level_or_parts(cmd: str) -> tuple[str, str] | None:
             continue
         if not in_single and not in_double and cmd.startswith("||", idx):
             return cmd[:idx].rstrip(), cmd[idx + 2 :].strip()
+        idx += 1
+    return None
+
+
+def _top_level_here_string_index(cmd: str) -> int | None:
+    in_single = False
+    in_double = False
+    escaped = False
+    idx = 0
+    while idx < len(cmd) - 2:
+        token = cmd[idx]
+        if escaped:
+            escaped = False
+            idx += 1
+            continue
+        if token == "\\":
+            escaped = True
+            idx += 1
+            continue
+        if token == "'" and not in_double:
+            in_single = not in_single
+            idx += 1
+            continue
+        if token == '"' and not in_single:
+            in_double = not in_double
+            idx += 1
+            continue
+        if not in_single and not in_double and cmd.startswith("<<<", idx):
+            return idx
         idx += 1
     return None
 

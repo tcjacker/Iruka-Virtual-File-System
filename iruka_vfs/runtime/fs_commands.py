@@ -293,6 +293,54 @@ def exec_sort(db: Session, session, args: list[str], *, input_text: str) -> Virt
     return VirtualCommandResult("\n".join(sorted(gathered)), "", 0, {"files": files})
 
 
+def exec_head(db: Session, session, args: list[str], *, input_text: str) -> VirtualCommandResult:
+    from iruka_vfs import service
+
+    line_count = 10
+    targets: list[str] = []
+    idx = 0
+    while idx < len(args):
+        token = args[idx]
+        if token == "-n":
+            if idx + 1 >= len(args):
+                return VirtualCommandResult("", "head: missing line count after -n", 1, {})
+            try:
+                line_count = int(args[idx + 1])
+            except ValueError:
+                return VirtualCommandResult("", f"head: invalid line count: {args[idx + 1]}", 1, {})
+            if line_count < 0:
+                return VirtualCommandResult("", f"head: invalid line count: {args[idx + 1]}", 1, {})
+            idx += 2
+            continue
+        if token.startswith("-"):
+            return VirtualCommandResult("", f"head: unsupported option: {token}", 1, {})
+        targets.append(token)
+        idx += 1
+
+    if not targets:
+        return VirtualCommandResult(
+            "\n".join(input_text.splitlines()[:line_count]),
+            "",
+            0,
+            {"source": "stdin", "line_count": line_count},
+        )
+
+    gathered: list[str] = []
+    files: list[str] = []
+    for target in targets:
+        node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, target)
+        if not node or node.node_type != "file":
+            return VirtualCommandResult("", service._format_missing_path_error("head", target, db=db, session=session), 1, {})
+        gathered.extend(service._get_node_content(db, node).splitlines())
+        files.append(service._node_path(db, node))
+    return VirtualCommandResult(
+        "\n".join(gathered[:line_count]),
+        "",
+        0,
+        {"files": files, "line_count": line_count},
+    )
+
+
 def exec_basename(args: list[str]) -> VirtualCommandResult:
     if len(args) != 1:
         return VirtualCommandResult("", "basename: require exactly one path", 1, {})

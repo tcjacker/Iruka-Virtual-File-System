@@ -42,7 +42,12 @@ class CommandParserTest(unittest.TestCase):
     def test_rejects_or_operator_with_explicit_error(self) -> None:
         parsed, error = parse_pipeline_and_redirect("cat a.txt || cat b.txt")
         self.assertEqual(parsed, {})
-        self.assertEqual(error, "parse error: || is not supported; use && or ;")
+        self.assertEqual(
+            error,
+            "parse error: unsupported `|| cat b.txt` fallback. "
+            "Supported forms are `|| true`, `|| :`, and `|| help`. "
+            "Otherwise remove the `|| ...` tail and run the main command directly, or use && / ; explicitly.",
+        )
 
     def test_rejects_input_redirect_with_explicit_error(self) -> None:
         parsed, error = parse_pipeline_and_redirect("cat < input.txt")
@@ -63,6 +68,21 @@ class CommandParserTest(unittest.TestCase):
         self.assertEqual(
             error,
             "parse error: command substitution is not supported; use plain commands only",
+        )
+
+    def test_parse_here_string_into_stdin(self) -> None:
+        parsed, error = parse_pipeline_and_redirect("grep demo <<< 'alpha demo beta'")
+        self.assertIsNone(error)
+        self.assertEqual(parsed["pipeline"], [["grep", "demo"]])
+        self.assertEqual(parsed["stdin_text"], "alpha demo beta\n")
+
+    def test_rejects_here_string_command_substitution_with_guidance(self) -> None:
+        parsed, error = parse_pipeline_and_redirect("grep demo <<< $(cat file.txt)")
+        self.assertEqual(parsed, {})
+        self.assertEqual(
+            error,
+            "parse error: here-string command substitution is not supported. "
+            "Use `cat <file> | <command>`, `echo <text> | <command>`, or `cat <<'EOF' | <command>` instead.",
         )
 
 

@@ -15,11 +15,18 @@ def _search_hint(target: str, *, command: str | None = None, db: Session | None 
     suggested_path = _find_unique_named_path(db, session, basename, raw_target=target)
     if suggested_path:
         if command in {"cat", "edit", "patch", "wc"} and not directory_style:
-            return f" Most likely existing path: {suggested_path}. Try: {command} {shlex.quote(suggested_path)}"
-        return f" Most likely existing path: {suggested_path}. Try: find /workspace -name {shlex.quote(basename)}"
+            return (
+                f" Most likely existing path: {suggested_path}. "
+                f"Try: {command} {shlex.quote(suggested_path)}. "
+                f"Do not recreate /workspace/{basename} when that exact file already exists elsewhere."
+            )
+        return (
+            f" Most likely existing path: {suggested_path}. "
+            f"Try: find /workspace -name {shlex.quote(basename)} or use the exact path above."
+        )
     if basename and basename not in {".", ".."}:
-        return f" Try: find /workspace -name {shlex.quote(basename)} or tree"
-    return " Try: ls -la /workspace or tree"
+        return f" Try: find /workspace -name {shlex.quote(basename)} -> cat -> edit/patch, or inspect tree"
+    return " Try: ls -la /workspace, find /workspace -type f, or tree"
 
 
 def _find_unique_named_path(db: Session | None, session, basename: str, *, raw_target: str) -> str | None:
