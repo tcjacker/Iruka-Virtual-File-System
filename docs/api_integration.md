@@ -238,8 +238,11 @@ with SessionLocal() as db:
 - `find`
   `find /workspace -name brief.md` 可在不知道具体目录时按文件名找路径
 - `rg`
+  `rg -c TODO /workspace/docs` 可按文件统计匹配次数
 - `grep`
   `grep -l TODO /workspace` 会返回包含匹配内容的文件路径
+  `grep -c TODO /workspace/docs` 可按文件统计匹配次数
+  `grep -v .git` 可用于过滤 stdin 路径列表
 - `wc -l`
 - `mkdir`
 - `touch`
@@ -262,12 +265,15 @@ with SessionLocal() as db:
 pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, xargs, echo, help
 需要查看类型/大小/版本号/修改时间时，使用 `ls -l`。
 不知道文件路径但知道文件名时，优先使用 `find /workspace -name 文件名`。
+路径未知时，推荐顺序是：`find /workspace -name 文件名` -> `cat` -> `edit` / `patch`。
 需要按内容返回文件路径时，优先使用 `grep -l PATTERN /workspace`。
+需要按文件统计匹配次数时，优先使用 `grep -c PATTERN 路径` 或 `rg -c PATTERN 路径`。
 
 写入规则：
 - 只能写 /workspace 下的路径
 - > 不会覆盖已有文件
 - >| 才表示显式覆盖
+- 如果已经确认要重写已有文件，直接使用 `>|`
 - >> 表示追加
 - 多行写文件时可以使用：cat <<'EOF' > /workspace/file ... EOF
 - 不要生成真实 shell 扩展语法：||、<、<<<、1>、2>、&>、$(...)、`...`
@@ -275,7 +281,7 @@ pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, xargs,
 如果不确定支持什么，先执行：help
 ```
 
-另外，`workspace_handle.bash(...)` 的返回结果现在会默认包含 `workspace_outline` 字段，用于给 agent 暴露顶层目录骨架。
+另外，`workspace_handle.bash(...)` 的返回结果现在会默认包含 `workspace_outline` 和 `discovery_hint` 字段，用于给 agent 暴露浅层目录结构与推荐探索顺序。
 
 ### 4.5 刷新到后端
 

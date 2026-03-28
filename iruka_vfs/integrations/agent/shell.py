@@ -86,11 +86,16 @@ def run_virtual_bash(
         cwd_path = transaction["cwd_path"]
         started_at = transaction["started_at"]
         ended_at = transaction["ended_at"]
-        workspace_outline = service.render_virtual_tree(db, workspace.id, max_depth=2)
+        workspace_outline = service.render_virtual_tree(db, workspace.id, max_depth=3)
+        discovery_hint = (
+            "If a path is unknown, start with find /workspace -name <file>, then cat, then edit/patch. "
+            "Use >| when overwriting an existing file."
+        )
         log_stdout, stdout_meta = truncate_for_log(result.stdout, VFS_COMMAND_LOG_MAX_STDOUT_CHARS)
         log_stderr, stderr_meta = truncate_for_log(result.stderr, VFS_COMMAND_LOG_MAX_STDERR_CHARS)
         result_artifacts = dict(result.artifacts or {})
         result_artifacts["workspace_outline"] = workspace_outline
+        result_artifacts["discovery_hint"] = discovery_hint
         log_artifacts = prepare_log_artifacts(
             result_artifacts,
             max_chars=VFS_COMMAND_LOG_MAX_ARTIFACT_CHARS,
@@ -133,6 +138,7 @@ def run_virtual_bash(
         "artifacts": result_artifacts,
         "cwd": cwd_path,
         "workspace_outline": workspace_outline,
+        "discovery_hint": discovery_hint,
     }
 
 

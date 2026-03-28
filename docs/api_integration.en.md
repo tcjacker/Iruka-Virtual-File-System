@@ -177,8 +177,11 @@ The virtual shell is intentionally small. Current supported commands are:
 - `find`
   Use `find /workspace -name brief.md` when you know the filename but not the path
 - `rg`
+  `rg -c TODO /workspace/docs` returns per-file match counts
 - `grep`
   `grep -l TODO /workspace` returns matching file paths
+  `grep -c TODO /workspace/docs` returns per-file match counts
+  `grep -v .git` is useful for filtering stdin path lists
 - `wc -l`
 - `mkdir`
 - `touch`
@@ -201,12 +204,15 @@ Use workspace.bash(db, "...") with only these commands:
 pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, xargs, echo, help
 Use `ls -l` when you need type/size/version/mtime.
 When you know the filename but not the path, start with `find /workspace -name <name>`.
+When the path is unknown, prefer: `find /workspace -name <name>` -> `cat` -> `edit` / `patch`.
 When you need file-path-only content matches, prefer `grep -l <pattern> /workspace`.
+When you need per-file match counts, prefer `grep -c <pattern> <path>` or `rg -c <pattern> <path>`.
 
 Write rules:
 - stay under /workspace
 - > does not overwrite existing files
 - >| overwrites explicitly
+- once you have confirmed an existing target file, prefer `>|` directly for rewrites
 - >> appends
 - for multi-line file creation, you may use: cat <<'EOF' > /workspace/file ... EOF
 - do not generate real-shell extras such as: ||, <, <<<, 1>, 2>, &>, $(...), `...`
@@ -214,7 +220,7 @@ Write rules:
 If you are unsure what is supported, run: help
 ```
 
-Each `workspace_handle.bash(...)` result now also includes `workspace_outline`, a shallow directory skeleton for agent-side path discovery.
+Each `workspace_handle.bash(...)` result now also includes `workspace_outline` and `discovery_hint`, exposing a shallow directory skeleton and a recommended discovery flow for agent-side path recovery.
 
 ### 4.5 Flush Runtime State
 

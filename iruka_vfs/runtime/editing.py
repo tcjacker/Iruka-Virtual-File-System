@@ -37,7 +37,7 @@ def exec_edit(db: Session, session, args: list[str]) -> VirtualCommandResult:
 
     node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, path)
     if not node or node.node_type != "file":
-        return VirtualCommandResult("", service._format_missing_path_error("edit", path), 1, {})
+        return VirtualCommandResult("", service._format_missing_path_error("edit", path, db=db, session=session), 1, {})
     node_path = service._node_path(db, node)
     allowed, deny_reason = service._allow_write_path(db, session, node_path)
     if not allowed:
@@ -80,7 +80,7 @@ def exec_patch(db: Session, session, args: list[str]) -> VirtualCommandResult:
 
     node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, path)
     if not node or node.node_type != "file":
-        return VirtualCommandResult("", service._format_missing_path_error("patch", path), 1, {})
+        return VirtualCommandResult("", service._format_missing_path_error("patch", path, db=db, session=session), 1, {})
     node_path = service._node_path(db, node)
     allowed, deny_reason = service._allow_write_path(db, session, node_path)
     if not allowed:

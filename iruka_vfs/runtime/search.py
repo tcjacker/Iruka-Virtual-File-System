@@ -6,20 +6,44 @@ import shlex
 
 from sqlalchemy.orm import Session
 
-from iruka_vfs.constants import REGEX_META_CHARS
+from iruka_vfs.constants import REGEX_META_CHARS, VFS_ROOT
 from iruka_vfs.models import VirtualCommandResult
 
 
-def _search_hint(target: str) -> str:
+def _search_hint(target: str, *, command: str | None = None, db: Session | None = None, session=None, directory_style: bool = False) -> str:
     basename = str(target or "").rstrip("/").split("/")[-1]
+    suggested_path = _find_unique_named_path(db, session, basename, raw_target=target)
+    if suggested_path:
+        if command in {"cat", "edit", "patch", "wc"} and not directory_style:
+            return f" Most likely existing path: {suggested_path}. Try: {command} {shlex.quote(suggested_path)}"
+        return f" Most likely existing path: {suggested_path}. Try: find /workspace -name {shlex.quote(basename)}"
     if basename and basename not in {".", ".."}:
         return f" Try: find /workspace -name {shlex.quote(basename)} or tree"
     return " Try: ls -la /workspace or tree"
 
 
-def format_missing_path_error(command: str, target: str, *, directory_style: bool = False) -> str:
+def _find_unique_named_path(db: Session | None, session, basename: str, *, raw_target: str) -> str | None:
+    from iruka_vfs import service
+
+    if db is None or session is None or not basename or basename in {".", ".."}:
+        return None
+    workspace_root = service._resolve_path(db, session.workspace_id, session.cwd_node_id, VFS_ROOT)
+    if workspace_root is None:
+        return None
+    normalized_target = service._normalize_virtual_path(db, session, raw_target) or raw_target
+    same_name_paths = [
+        path
+        for path in find_paths(db, session.workspace_id, workspace_root, name_pattern=basename)
+        if path != normalized_target
+    ]
+    if len(same_name_paths) != 1:
+        return None
+    return same_name_paths[0]
+
+
+def format_missing_path_error(command: str, target: str, *, directory_style: bool = False, db: Session | None = None, session=None) -> str:
     suffix = "No such file or directory" if directory_style else "No such file"
-    return f"{command}: {target}: {suffix}.{_search_hint(target)}"
+    return f"{command}: {target}: {suffix}.{_search_hint(target, command=command, db=db, session=session, directory_style=directory_style)}"
 
 
 def safe_compile(pattern: str) -> re.Pattern[str] | None:
@@ -29,17 +53,25 @@ def safe_compile(pattern: str) -> re.Pattern[str] | None:
         return None
 
 
-def search_text_lines(text: str, pattern: str) -> list[str]:
+def _line_matches(line: str, pattern: str, regex: re.Pattern[str] | None, *, invert_match: bool) -> bool:
+    hit = bool(regex.search(line)) if regex else pattern.lower() in line.lower()
+    return not hit if invert_match else hit
+
+
+def search_text_lines(text: str, pattern: str, *, invert_match: bool = False) -> list[str]:
     regex = safe_compile(pattern)
     matches: list[str] = []
     for line in text.splitlines():
-        hit = bool(regex.search(line)) if regex else pattern.lower() in line.lower()
-        if hit:
+        if _line_matches(line, pattern, regex, invert_match=invert_match):
             matches.append(line)
     return matches
 
 
-def search_nodes(db: Session, workspace_id: int, node, pattern: str) -> list[str]:
+def count_text_matches(text: str, pattern: str, *, invert_match: bool = False) -> int:
+    return len(search_text_lines(text, pattern, invert_match=invert_match))
+
+
+def search_nodes(db: Session, workspace_id: int, node, pattern: str, *, invert_match: bool = False) -> list[str]:
     from iruka_vfs import service
 
     regex = safe_compile(pattern)
@@ -48,13 +80,12 @@ def search_nodes(db: Session, workspace_id: int, node, pattern: str) -> list[str
     for item in file_nodes:
         content_text = service._get_node_content(db, item)
         for i, line in enumerate(content_text.splitlines(), start=1):
-            hit = bool(regex.search(line)) if regex else pattern.lower() in line.lower()
-            if hit:
+            if _line_matches(line, pattern, regex, invert_match=invert_match):
                 matches.append(f"{search_display_path(db, item)}:{i}:{line}")
     return matches
 
 
-def search_matching_file_paths(db: Session, workspace_id: int, node, pattern: str) -> list[str]:
+def search_matching_file_paths(db: Session, workspace_id: int, node, pattern: str, *, invert_match: bool = False) -> list[str]:
     from iruka_vfs import service
 
     regex = safe_compile(pattern)
@@ -64,13 +95,29 @@ def search_matching_file_paths(db: Session, workspace_id: int, node, pattern: st
         content_text = service._get_node_content(db, item)
         file_hit = False
         for line in content_text.splitlines():
-            hit = bool(regex.search(line)) if regex else pattern.lower() in line.lower()
-            if hit:
+            if _line_matches(line, pattern, regex, invert_match=invert_match):
                 file_hit = True
                 break
         if file_hit:
             matches.append(search_display_path(db, item))
     return matches
+
+
+def search_match_counts(db: Session, workspace_id: int, node, pattern: str, *, invert_match: bool = False) -> list[tuple[str, int]]:
+    from iruka_vfs import service
+
+    regex = safe_compile(pattern)
+    file_nodes = collect_files_for_search(db, workspace_id, node, pattern=pattern, regex=regex)
+    counts: list[tuple[str, int]] = []
+    for item in file_nodes:
+        content_text = service._get_node_content(db, item)
+        match_count = 0
+        for line in content_text.splitlines():
+            if _line_matches(line, pattern, regex, invert_match=invert_match):
+                match_count += 1
+        if match_count:
+            counts.append((search_display_path(db, item), match_count))
+    return counts
 
 
 def search_display_path(db: Session, node) -> str:
@@ -144,7 +191,7 @@ def exec_find(db: Session, session, args: list[str]) -> VirtualCommandResult:
 
     node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, target)
     if not node:
-        return VirtualCommandResult("", format_missing_path_error("find", target, directory_style=True), 1, {})
+        return VirtualCommandResult("", format_missing_path_error("find", target, directory_style=True, db=db, session=session), 1, {})
 
     matches = _resolve_find_matches(
         db,

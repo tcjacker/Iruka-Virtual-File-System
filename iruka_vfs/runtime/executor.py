@@ -19,8 +19,8 @@ Supported commands:
   ls -l / ls -la also work and show type, size, version, and mtime
 - cat <file>
 - find [path] [-type f|d] [-name <glob>]
-- rg [-l] <pattern> [path...]
-- grep [-l] <pattern> [path...]
+- rg [-l|-c] <pattern> [path...]
+- grep [-l|-c|-v] <pattern> [path...]
 - wc -l <file>
 - mkdir [-p] <path>
 - touch <file>
@@ -33,16 +33,18 @@ Supported commands:
 - help
 
 Discovery tips:
+- When the target path is unknown, use: find /workspace -name <file> -> cat -> edit/patch
 - Use find /workspace -name brief.md when you know the filename but not the path
 - find also supports a limited -exec form, for example: find /workspace -type f -exec grep -l TODO {} \\;
 - Use tree when you need the top-level directory layout
-- Each bash result also includes workspace_outline with the top-level directory skeleton
+- Each bash result also includes workspace_outline with the top-level directory skeleton and first file layer
 
 Write rules:
 - All writes must stay under /workspace
 - > creates or writes a file but does not overwrite an existing file
 - >| overwrites an existing file explicitly
 - >> appends to an existing file
+- When rewriting an existing file after reading it, prefer >| directly
 - Limited heredoc is supported, for example: cat <<'EOF' > /workspace/file ... EOF
 - Use host write_file(..., overwrite=True) or shell >| only after confirmation
 
@@ -170,14 +172,14 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         if unsupported_flags:
             return VirtualCommandResult(
                 "",
-                f"ls: unsupported option: {unsupported_flags[0]}",
+                _format_ls_unsupported_option(unsupported_flags[0]),
                 1,
                 {"unsupported_option": unsupported_flags[0]},
             )
         target = targets[0] if targets else "."
         node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, target)
         if not node:
-            return VirtualCommandResult("", _format_ls_missing_target(target), 1, {})
+            return VirtualCommandResult("", _format_ls_missing_target(db, session, target), 1, {})
         long_format = bool(flags & {"-l", "-la", "-al"})
         if node.node_type == "file":
             label = _format_ls_entry(node, long_format=long_format)
@@ -199,7 +201,7 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         for target in args:
             node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, target)
             if not node or node.node_type != "file":
-                return VirtualCommandResult("", service._format_missing_path_error("cat", target), 1, {})
+                return VirtualCommandResult("", service._format_missing_path_error("cat", target, db=db, session=session), 1, {})
             outputs.append(service._get_node_content(db, node))
             files.append(service._node_path(db, node))
         return VirtualCommandResult("\n".join(outputs), "", 0, {"files": files})
@@ -208,36 +210,59 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         return service._exec_find(db, session, args)
 
     if name in {"rg", "grep"}:
-        flags = [arg for arg in args if arg.startswith("-")]
-        unsupported_flags = sorted(flag for flag in flags if flag != "-l")
+        flags = _expand_short_flags([arg for arg in args if arg.startswith("-")])
+        supported_flags = {"-l", "-c"} | ({"-v"} if name == "grep" else set())
+        unsupported_flags = sorted(flag for flag in flags if flag not in supported_flags)
         if unsupported_flags:
-            return VirtualCommandResult("", f"{name}: unsupported option: {unsupported_flags[0]}", 1, {})
+            return VirtualCommandResult("", _format_search_unsupported_option(name, unsupported_flags[0]), 1, {})
+        if "-l" in flags and "-c" in flags:
+            return VirtualCommandResult("", f"{name}: use either -l or -c, not both", 1, {})
         non_flags = [arg for arg in args if not arg.startswith("-")]
         if len(non_flags) < 1:
             return VirtualCommandResult("", f"{name}: missing pattern", 1, {})
         pattern = non_flags[0]
         targets = non_flags[1:]
         list_only = "-l" in flags
+        count_only = "-c" in flags
+        invert_match = "-v" in flags
         if not targets:
-            matched = service._search_text_lines(input_text, pattern)
+            matched = service._search_text_lines(input_text, pattern, invert_match=invert_match)
+            match_count = len(matched)
+            if count_only:
+                return VirtualCommandResult(
+                    str(match_count),
+                    "",
+                    0 if match_count else 1,
+                    {"match_count": match_count, "source": "stdin", "flags": sorted(flags)},
+                )
             if not matched:
-                return VirtualCommandResult("", "", 1, {"match_count": 0, "source": "stdin"})
+                return VirtualCommandResult("", "", 1, {"match_count": 0, "source": "stdin", "flags": sorted(flags)})
             if list_only:
                 return VirtualCommandResult("stdin", "", 0, {"match_count": 1, "source": "stdin", "flags": sorted(flags)})
-            return VirtualCommandResult("\n".join(matched), "", 0, {"match_count": len(matched), "source": "stdin"})
+            return VirtualCommandResult("\n".join(matched), "", 0, {"match_count": match_count, "source": "stdin", "flags": sorted(flags)})
         outputs: list[str] = []
         match_count = 0
         seen_outputs: set[str] = set()
         for target in targets:
             node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, target)
             if not node:
-                return VirtualCommandResult("", service._format_missing_path_error(name, target, directory_style=True), 1, {})
-            matches = (
-                service._search_matching_file_paths(db, session.workspace_id, node, pattern)
-                if list_only
-                else service._search_nodes(db, session.workspace_id, node, pattern)
-            )
-            match_count += len(matches)
+                return VirtualCommandResult("", service._format_missing_path_error(name, target, directory_style=True, db=db, session=session), 1, {})
+            if list_only:
+                matches = service._search_matching_file_paths(
+                    db, session.workspace_id, node, pattern, invert_match=invert_match
+                )
+                match_count += len(matches)
+            elif count_only:
+                counts = service._search_match_counts(
+                    db, session.workspace_id, node, pattern, invert_match=invert_match
+                )
+                matches = _format_count_outputs(counts, single_target=len(targets) == 1 and node.node_type == "file")
+                match_count += sum(count for _, count in counts)
+            else:
+                matches = service._search_nodes(
+                    db, session.workspace_id, node, pattern, invert_match=invert_match
+                )
+                match_count += len(matches)
             for item in matches:
                 if item in seen_outputs:
                     continue
@@ -308,7 +333,7 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
     if name == "touch":
         return service._exec_touch(db, session, args)
 
-    return VirtualCommandResult("", f"unsupported command: {name}", 127, {})
+    return VirtualCommandResult("", f"unsupported command: {name}. Try: help", 127, {})
 
 
 def _mutate_cd(mirror, cwd_node_id: int):
@@ -337,14 +362,45 @@ def _format_ls_timestamp(value: datetime | None) -> str:
     return value.strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def _format_ls_missing_target(target: str) -> str:
-    basename = PurePosixPath(target).name or PurePosixPath(target).parent.name
-    if basename:
-        return (
-            f"ls: cannot access '{target}': No such file or directory. "
-            f"Try: find /workspace -name '{basename}' or tree"
-        )
-    return f"ls: cannot access '{target}': No such file or directory. Try: ls -la /workspace or tree"
+def _format_ls_missing_target(db: Session, session, target: str) -> str:
+    missing = _format_missing_target_hint("ls", target, db=db, session=session, directory_style=True)
+    return missing.replace("ls: ", "ls: cannot access '", 1).replace(": No such file or directory.", "': No such file or directory.", 1)
+
+
+def _format_ls_unsupported_option(flag: str) -> str:
+    if flag == "-R":
+        return "ls: unsupported option: -R. Try: tree for recursion or find /workspace -name <file>"
+    return f"ls: unsupported option: {flag}"
+
+
+def _format_search_unsupported_option(command: str, flag: str) -> str:
+    supported = "-l, -c" if command == "rg" else "-l, -c, -v"
+    return (
+        f"{command}: unsupported option: {flag}. Supported options: {supported}. "
+        f"Try: {command} -l PATTERN /workspace to locate files or {command} -c PATTERN <paths> to count matches."
+    )
+
+
+def _expand_short_flags(flags: list[str]) -> list[str]:
+    expanded: list[str] = []
+    for flag in flags:
+        if flag.startswith("-") and not flag.startswith("--") and len(flag) > 2:
+            expanded.extend(f"-{part}" for part in flag[1:])
+            continue
+        expanded.append(flag)
+    return expanded
+
+
+def _format_count_outputs(counts: list[tuple[str, int]], *, single_target: bool) -> list[str]:
+    if single_target and len(counts) == 1:
+        return [str(counts[0][1])]
+    return [f"{path}:{count}" for path, count in counts]
+
+
+def _format_missing_target_hint(command: str, target: str, *, db: Session, session, directory_style: bool) -> str:
+    from iruka_vfs import service
+
+    return service._format_missing_path_error(command, target, directory_style=directory_style, db=db, session=session)
 
 
 def apply_redirect(db: Session, session, *, output_text: str, redirect: dict[str, str]) -> VirtualCommandResult:

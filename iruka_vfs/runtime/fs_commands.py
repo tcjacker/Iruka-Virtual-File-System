@@ -148,9 +148,9 @@ def exec_wc(db: Session, session, args: list[str], *, input_text: str) -> Virtua
     opts = [arg for arg in args if arg.startswith("-")]
     files = [arg for arg in args if not arg.startswith("-")]
     if any(opt != "-l" for opt in opts):
-        return VirtualCommandResult("", "wc: only -l is supported", 1, {})
+        return VirtualCommandResult("", "wc: only -l is supported. Use grep -c PATTERN <paths> to count matches.", 1, {})
     if opts and "-l" not in opts:
-        return VirtualCommandResult("", "wc: only -l is supported", 1, {})
+        return VirtualCommandResult("", "wc: only -l is supported. Use grep -c PATTERN <paths> to count matches.", 1, {})
 
     if not files:
         return VirtualCommandResult(str(count_lines(input_text)), "", 0, {"source": "stdin"})
@@ -160,7 +160,7 @@ def exec_wc(db: Session, session, args: list[str], *, input_text: str) -> Virtua
     for target in files:
         node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, target)
         if not node or node.node_type != "file":
-            return VirtualCommandResult("", service._format_missing_path_error("wc", target), 1, {})
+            return VirtualCommandResult("", service._format_missing_path_error("wc", target, db=db, session=session), 1, {})
         count = count_lines(service._get_node_content(db, node))
         total += count
         lines.append(f"{count} {service._node_path(db, node)}")
