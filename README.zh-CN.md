@@ -119,7 +119,7 @@ configure_vfs_dependencies(
 
 对 host 路径来说，`workspace.ensure(db)` 也会顺带初始化 `workspace.flush()` 所需的 checkpoint 持久化前置条件。正常先执行一次 `ensure(db)` 后，宿主不需要再手工初始化 checkpoint worker 状态。
 
-虚拟 shell 现在还提供内置 `help` 命令。如果 agent 运行时忘记支持哪些能力，可以直接执行 `workspace.bash(db, "help")`，读取返回的 `stdout` 或 `artifacts["supported_commands"]`。
+虚拟 shell 现在还提供内置 `help` 命令。如果 agent 运行时忘记支持哪些能力，可以直接执行 `workspace.bash(db, "help")`，读取返回的 `stdout` 或 `artifacts["supported_commands"]`。每次 bash 返回里也会带上 `workspace_outline`、`workspace_bootstrap` 和 `discovery_hint`，用于辅助路径发现。
 
 推荐给 agent 注入的最小 prompt：
 
@@ -127,8 +127,12 @@ configure_vfs_dependencies(
 你当前处在虚拟 workspace 中，不是完整操作系统 shell。
 
 只能通过 workspace.bash(db, "...") 使用这些命令：
-pwd, cd, ls, cat, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
+pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, cp, mv, rm, sort, basename, dirname, edit, patch, tree, xargs, echo, help
 需要查看类型/大小/版本号/修改时间时，使用 `ls -l`。
+知道文件名但不知道具体路径时，先用 `find /workspace -name 文件名`。
+路径未知时，推荐顺序是：`find /workspace -name 文件名` -> `cat` -> `edit` / `patch`。
+需要按文件统计匹配次数时，优先使用 `grep -c PATTERN 路径` 或 `rg -c PATTERN 路径`。
+文件管理类操作里，`cp` / `mv` 当前只支持文件，`rm` 一次只删一个文件，`sort` 适合简单文本排序。
 
 写入规则：
 - 只能写 /workspace 下的路径
@@ -136,7 +140,8 @@ pwd, cd, ls, cat, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
 - >| 才表示显式覆盖
 - >> 表示追加
 - 多行写文件时可以使用：cat <<'EOF' > /workspace/file ... EOF
-- 不要生成真实 shell 扩展语法：||、<、<<<、1>、2>、&>、$(...)、`...`
+- 可使用受限兼容语法：`2>/dev/null`、`|| true`、`|| :`、`|| help`
+- 不要生成真实 shell 扩展语法：通用 `||`、<、<<<、1>、通用 `2>`、&>、$(...)、`...`
 
 如果不确定支持什么，先执行：help
 ```

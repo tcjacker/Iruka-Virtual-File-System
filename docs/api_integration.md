@@ -246,6 +246,16 @@ with SessionLocal() as db:
 - `wc -l`
 - `mkdir`
 - `touch`
+- `cp`
+  仅支持文件复制；目标已存在时不会直接覆盖
+- `mv`
+  仅支持文件移动/重命名；目标已存在时不会直接覆盖
+- `rm`
+  仅支持单文件删除，不支持 `-r` / `-f`
+- `sort`
+  支持文件输入和管道 stdin 输入，不支持复杂选项
+- `basename`
+- `dirname`
 - `edit`
 - `patch`
 - `tree`
@@ -263,11 +273,13 @@ with SessionLocal() as db:
 
 只能通过 workspace.bash(db, "...") 使用这些命令：
 pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, xargs, echo, help
+也支持：cp, mv, rm, sort, basename, dirname
 需要查看类型/大小/版本号/修改时间时，使用 `ls -l`。
 不知道文件路径但知道文件名时，优先使用 `find /workspace -name 文件名`。
 路径未知时，推荐顺序是：`find /workspace -name 文件名` -> `cat` -> `edit` / `patch`。
 需要按内容返回文件路径时，优先使用 `grep -l PATTERN /workspace`。
 需要按文件统计匹配次数时，优先使用 `grep -c PATTERN 路径` 或 `rg -c PATTERN 路径`。
+需要安全地忽略失败时，只使用受限 fallback：`|| true`、`|| :`、`|| help`。
 
 写入规则：
 - 只能写 /workspace 下的路径
@@ -276,12 +288,13 @@ pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, xargs,
 - 如果已经确认要重写已有文件，直接使用 `>|`
 - >> 表示追加
 - 多行写文件时可以使用：cat <<'EOF' > /workspace/file ... EOF
-- 不要生成真实 shell 扩展语法：||、<、<<<、1>、2>、&>、$(...)、`...`
+- 可使用受限尾巴：`2>/dev/null`
+- 不要生成真实 shell 扩展语法：通用 `||`、<、<<<、1>、通用 `2>`、&>、$(...)、`...`
 
 如果不确定支持什么，先执行：help
 ```
 
-另外，`workspace_handle.bash(...)` 的返回结果现在会默认包含 `workspace_outline` 和 `discovery_hint` 字段，用于给 agent 暴露浅层目录结构与推荐探索顺序。
+另外，`workspace_handle.bash(...)` 的返回结果现在会默认包含 `workspace_outline`、`workspace_bootstrap` 和 `discovery_hint` 字段，用于给 agent 暴露浅层目录结构、已知文件列表与推荐探索顺序。
 
 ### 4.5 刷新到后端
 

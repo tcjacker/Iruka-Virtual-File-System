@@ -185,6 +185,16 @@ The virtual shell is intentionally small. Current supported commands are:
 - `wc -l`
 - `mkdir`
 - `touch`
+- `cp`
+  File-only copy; it does not overwrite an existing target
+- `mv`
+  File-only move/rename; it does not overwrite an existing target
+- `rm`
+  Single-file remove only; no `-r` / `-f`
+- `sort`
+  Supports file input and stdin pipeline input, without advanced flags
+- `basename`
+- `dirname`
 - `edit`
 - `patch`
 - `tree`
@@ -202,11 +212,13 @@ You are in a virtual workspace, not a full OS shell.
 
 Use workspace.bash(db, "...") with only these commands:
 pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, xargs, echo, help
+Also available: cp, mv, rm, sort, basename, dirname
 Use `ls -l` when you need type/size/version/mtime.
 When you know the filename but not the path, start with `find /workspace -name <name>`.
 When the path is unknown, prefer: `find /workspace -name <name>` -> `cat` -> `edit` / `patch`.
 When you need file-path-only content matches, prefer `grep -l <pattern> /workspace`.
 When you need per-file match counts, prefer `grep -c <pattern> <path>` or `rg -c <pattern> <path>`.
+When you want a safe ignore-on-failure fallback, only use `|| true`, `|| :`, or `|| help`.
 
 Write rules:
 - stay under /workspace
@@ -215,12 +227,13 @@ Write rules:
 - once you have confirmed an existing target file, prefer `>|` directly for rewrites
 - >> appends
 - for multi-line file creation, you may use: cat <<'EOF' > /workspace/file ... EOF
-- do not generate real-shell extras such as: ||, <, <<<, 1>, 2>, &>, $(...), `...`
+- `2>/dev/null` is supported in a limited form
+- do not generate real-shell extras such as: general `||`, <, <<<, 1>, general 2>, &>, $(...), `...`
 
 If you are unsure what is supported, run: help
 ```
 
-Each `workspace_handle.bash(...)` result now also includes `workspace_outline` and `discovery_hint`, exposing a shallow directory skeleton and a recommended discovery flow for agent-side path recovery.
+Each `workspace_handle.bash(...)` result now also includes `workspace_outline`, `workspace_bootstrap`, and `discovery_hint`, exposing a shallow directory skeleton, a small known-file bootstrap, and a recommended discovery flow for agent-side path recovery.
 
 ### 4.5 Flush Runtime State
 
