@@ -23,6 +23,14 @@ def exec_touch(db: Session, session, args: list[str]) -> VirtualCommandResult:
         allowed, deny_reason = service._allow_write_path(db, session, resolved_target)
         if not allowed:
             return VirtualCommandResult("", f"touch: {deny_reason}", 1, {"path": resolved_target})
+        conflict = service._detect_ambiguous_create_target(db, session, raw_path, node=node)
+        if conflict is not None:
+            return VirtualCommandResult(
+                "",
+                service._format_ambiguous_create_target_message(conflict, source="touch"),
+                1,
+                conflict,
+            )
         if node:
             if node.node_type != "file":
                 return VirtualCommandResult("", f"touch: cannot touch '{raw_path}': Not a file", 1, {})

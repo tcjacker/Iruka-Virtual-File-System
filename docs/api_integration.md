@@ -239,12 +239,15 @@ with SessionLocal() as db:
   `find /workspace -name brief.md` 可在不知道具体目录时按文件名找路径
 - `rg`
 - `grep`
+  `grep -l TODO /workspace` 会返回包含匹配内容的文件路径
 - `wc -l`
 - `mkdir`
 - `touch`
 - `edit`
 - `patch`
 - `tree`
+- `xargs`
+  支持受限用法，适合 `find ... | xargs grep -l TODO`
 - `echo`
 - `help`
 
@@ -256,9 +259,10 @@ with SessionLocal() as db:
 你当前处在虚拟 workspace 中，不是完整操作系统 shell。
 
 只能通过 workspace.bash(db, "...") 使用这些命令：
-pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
+pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, xargs, echo, help
 需要查看类型/大小/版本号/修改时间时，使用 `ls -l`。
 不知道文件路径但知道文件名时，优先使用 `find /workspace -name 文件名`。
+需要按内容返回文件路径时，优先使用 `grep -l PATTERN /workspace`。
 
 写入规则：
 - 只能写 /workspace 下的路径

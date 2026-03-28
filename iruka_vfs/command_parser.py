@@ -10,21 +10,64 @@ def split_chain(raw_cmd: str) -> list[dict[str, str]]:
     if heredoc_cmd is not None:
         return heredoc_cmd
 
-    tokens = re.split(r"\s*(&&|;)\s*", raw_cmd.strip())
-    if len(tokens) == 1:
-        return [{"op": ";", "cmd": raw_cmd.strip()}]
+    stripped = raw_cmd.strip()
+    if not stripped:
+        return [{"op": ";", "cmd": ""}]
 
     pieces: list[dict[str, str]] = []
     current_op = ";"
-    for token in tokens:
-        token = token.strip()
-        if not token:
+    current_chars: list[str] = []
+    in_single = False
+    in_double = False
+    escaped = False
+    idx = 0
+
+    while idx < len(stripped):
+        token = stripped[idx]
+        if escaped:
+            current_chars.append(token)
+            escaped = False
+            idx += 1
             continue
-        if token in {"&&", ";"}:
-            current_op = token
+        if token == "\\":
+            current_chars.append(token)
+            escaped = True
+            idx += 1
             continue
-        pieces.append({"op": current_op, "cmd": token})
-    return pieces or [{"op": ";", "cmd": raw_cmd.strip()}]
+        if token == "'" and not in_double:
+            in_single = not in_single
+            current_chars.append(token)
+            idx += 1
+            continue
+        if token == '"' and not in_single:
+            in_double = not in_double
+            current_chars.append(token)
+            idx += 1
+            continue
+        if not in_single and not in_double:
+            if stripped.startswith("&&", idx):
+                segment = "".join(current_chars).strip()
+                if segment:
+                    pieces.append({"op": current_op, "cmd": segment})
+                current_chars = []
+                current_op = "&&"
+                idx += 2
+                continue
+            if token == ";":
+                segment = "".join(current_chars).strip()
+                if segment:
+                    pieces.append({"op": current_op, "cmd": segment})
+                current_chars = []
+                current_op = ";"
+                idx += 1
+                continue
+        current_chars.append(token)
+        idx += 1
+
+    segment = "".join(current_chars).strip()
+    if segment:
+        pieces.append({"op": current_op, "cmd": segment})
+    return pieces or [{"op": ";", "cmd": stripped}]
 
 
 def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
@@ -39,7 +82,7 @@ def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
     try:
         tokens = list(shell_tokens(cmd))
     except ValueError as exc:
-        return {}, f"parse error: {exc}"
+        return {}, _format_shlex_parse_error(cmd, exc)
 
     if not tokens:
         return {"pipeline": [], "redirect": None}, None
@@ -126,9 +169,14 @@ def parse_options(args: list[str]) -> dict[str, Any]:
     while idx < len(args):
         token = args[idx]
         if token.startswith("--"):
-            if idx + 1 < len(args) and not args[idx + 1].startswith("--"):
-                values[token] = args[idx + 1]
-                idx += 2
+            next_idx = idx + 1
+            parts: list[str] = []
+            while next_idx < len(args) and not args[next_idx].startswith("--"):
+                parts.append(args[next_idx])
+                next_idx += 1
+            if parts:
+                values[token] = " ".join(parts)
+                idx = next_idx
                 continue
             values["flags"].add(token)
             idx += 1
@@ -236,3 +284,16 @@ def _contains_plain_input_redirect(cmd: str) -> bool:
             continue
         return True
     return False
+
+
+def _format_shlex_parse_error(cmd: str, exc: ValueError) -> str:
+    message = str(exc)
+    if message == "No escaped character":
+        if "-exec" in cmd or "\\;" in cmd or "\\(" in cmd or "\\)" in cmd:
+            return (
+                "parse error: shell-escaped find syntax is not supported in that form. "
+                "Use a limited form like `find /workspace -type f -exec grep -l TODO {} \\;`, "
+                "`find ... | xargs grep -l TODO`, or `grep -l TODO /workspace`."
+            )
+        return "parse error: stray backslash escape; use plain commands only"
+    return f"parse error: {message}"

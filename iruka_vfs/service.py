@@ -44,6 +44,7 @@ from iruka_vfs.runtime import (
     run_command_chain as _run_command_chain,
     run_single_command as _run_single_command,
     safe_compile as _safe_compile,
+    search_matching_file_paths as _search_matching_file_paths,
     search_display_path as _search_display_path,
     search_nodes as _search_nodes,
     search_text_lines as _search_text_lines,
@@ -69,7 +70,9 @@ from iruka_vfs.service_ops.bootstrap import (
 )
 from iruka_vfs.service_ops.file_api import (
     allow_write_path as _allow_write_path,
+    detect_ambiguous_create_target as _detect_ambiguous_create_target,
     flush_workspace,
+    format_ambiguous_create_target_message as _format_ambiguous_create_target_message,
     normalize_virtual_path as _normalize_virtual_path,
     read_workspace_directory,
     read_workspace_file,

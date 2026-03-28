@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import PurePosixPath
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -66,6 +67,9 @@ def write_workspace_file(
         set_active_workspace_scope(scope_key)
         normalized = normalize_workspace_path(path, require_file=True)
         session = get_or_create_session(db, int(workspace.id))
+        conflict = detect_ambiguous_create_target(db, session, normalized)
+        if conflict is not None:
+            raise FileExistsError(format_ambiguous_create_target_message(conflict, source="write_file"))
         allowed, deny_reason = allow_write_path(db, session, normalized)
         if not allowed:
             raise PermissionError(f"write_file: {deny_reason}")
@@ -159,6 +163,55 @@ def resolve_target_path_for_write(db: Session, session: VirtualShellSession, raw
     if parent_path == "/":
         return f"/{leaf}"
     return f"{parent_path.rstrip('/')}/{leaf}"
+
+
+def detect_ambiguous_create_target(db: Session, session: VirtualShellSession, raw_path: str, *, node=None) -> dict[str, str] | None:
+    from iruka_vfs import service
+
+    if node is not None:
+        return None
+    resolved_target = resolve_target_path_for_write(db, session, raw_path, node=node)
+    if not resolved_target or not path_is_under(resolved_target, VFS_ROOT):
+        return None
+    requested = PurePosixPath(resolved_target)
+    if str(requested.parent) != VFS_ROOT:
+        return None
+    workspace_root = resolve_path(db, session.workspace_id, session.cwd_node_id, VFS_ROOT)
+    if not workspace_root:
+        return None
+    same_name_paths = [
+        path
+        for path in service._find_paths(
+            db,
+            session.workspace_id,
+            workspace_root,
+            name_pattern=requested.name,
+            node_type="file",
+        )
+        if path != resolved_target
+    ]
+    if len(same_name_paths) != 1:
+        return None
+    return {
+        "requested_path": resolved_target,
+        "suggested_path": same_name_paths[0],
+    }
+
+
+def format_ambiguous_create_target_message(conflict: dict[str, str], *, source: str) -> str:
+    labels = {
+        "redirect": "redirect",
+        "touch": "touch",
+        "write_file": "write_file",
+    }
+    label = labels.get(source, source)
+    requested_path = conflict["requested_path"]
+    suggested_path = conflict["suggested_path"]
+    return (
+        f"{label}: {requested_path} would create a new root-level file, "
+        f"but an existing file with the same name was found at {suggested_path}. "
+        "Use the existing path instead."
+    )
 
 
 def normalize_virtual_path(db: Session, session: VirtualShellSession, raw_path: str) -> str | None:

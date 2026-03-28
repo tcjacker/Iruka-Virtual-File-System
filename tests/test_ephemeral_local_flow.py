@@ -537,6 +537,86 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 "edit: require --find and --replace. Example: edit /workspace/file.txt --find old --replace new",
             )
 
+    def test_edit_supports_unquoted_multiword_find_replace(self) -> None:
+        workspace = VFSWorkspace(
+            id=323,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-323",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-323",
+            tenant_id="test-tenant",
+            workspace_files={"/workspace/docs/summary.md": "# Summary\n\nCurrent version: 1.3.0\n"},
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "edit /workspace/docs/summary.md --find Current version: 1.3.0 --replace Current version: 1.4.0",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            updated = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/docs/summary.md",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(updated["stdout"], "# Summary\n\nCurrent version: 1.4.0")
+
+    def test_patch_supports_unquoted_multiword_find_replace(self) -> None:
+        workspace = VFSWorkspace(
+            id=324,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-324",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-324",
+            tenant_id="test-tenant",
+            workspace_files={"/workspace/docs/summary.md": "# Summary\n\nCurrent version: 1.3.0\n"},
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "patch --path /workspace/docs/summary.md --find Current version: 1.3.0 --replace Current version: 1.4.0",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            updated = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/docs/summary.md",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(updated["stdout"], "# Summary\n\nCurrent version: 1.4.0")
+
     def test_patch_fails_when_target_text_is_missing(self) -> None:
         with self.SessionLocal() as db:
             scope_key = self.workspace_mirror.workspace_scope_for_db(db)
@@ -668,6 +748,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertIn("Supported commands:", result["stdout"])
             self.assertIn("- help", result["stdout"])
             self.assertIn("- find [path] [-type f|d] [-name <glob>]", result["stdout"])
+            self.assertIn("- xargs <command> [args...]", result["stdout"])
             self.assertIn(">| overwrites an existing file explicitly", result["stdout"])
             self.assertEqual(
                 result["artifacts"]["supported_commands"],
@@ -685,6 +766,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                     "edit",
                     "patch",
                     "tree",
+                    "xargs",
                     "echo",
                     "help",
                 ],
@@ -717,6 +799,78 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["exit_code"], 0)
             self.assertEqual(result["stdout"], "/workspace/files/demo.txt")
             self.assertEqual(result["artifacts"]["match_count"], 1)
+
+    def test_xargs_grep_l_finds_matching_files(self) -> None:
+        workspace = VFSWorkspace(
+            id=325,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-325",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-325",
+            tenant_id="test-tenant",
+            workspace_files={
+                "/workspace/docs/a.md": "TODO: finish\n",
+                "/workspace/docs/b.md": "done\n",
+            },
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "find /workspace -type f -name '*.md' | xargs grep -l TODO",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["stdout"], "/workspace/docs/a.md")
+
+    def test_find_exec_grep_l_finds_matching_files(self) -> None:
+        workspace = VFSWorkspace(
+            id=326,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-326",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-326",
+            tenant_id="test-tenant",
+            workspace_files={
+                "/workspace/docs/a.md": "TODO: finish\n",
+                "/workspace/docs/b.md": "done\n",
+            },
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "find /workspace -type f -exec grep -l TODO {} \\;",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["stdout"], "/workspace/docs/a.md")
 
     def test_ls_long_format_shows_file_types(self) -> None:
         with self.SessionLocal() as db:
@@ -802,6 +956,52 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 result["stderr"],
                 "redirect: cannot create /workspace/missing/demo.txt: invalid parent path",
             )
+
+    def test_redirect_rejects_ambiguous_root_level_create_target(self) -> None:
+        workspace = VFSWorkspace(
+            id=327,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-327",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-327",
+            tenant_id="test-tenant",
+            workspace_files={"/workspace/docs/release_notes.md": "# Release Notes\n\nOld content.\n"},
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat <<'EOF' > /workspace/release_notes.md\n# Release Notes\n\nUpdated content.\nEOF",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 1)
+            self.assertEqual(
+                result["stderr"],
+                "redirect: /workspace/release_notes.md would create a new root-level file, "
+                "but an existing file with the same name was found at /workspace/docs/release_notes.md. "
+                "Use the existing path instead.",
+            )
+            existing = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/docs/release_notes.md",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(existing["stdout"], "# Release Notes\n\nOld content.")
 
     def test_redirect_fails_outside_workspace(self) -> None:
         with self.SessionLocal() as db:

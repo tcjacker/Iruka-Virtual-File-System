@@ -178,12 +178,15 @@ The virtual shell is intentionally small. Current supported commands are:
   Use `find /workspace -name brief.md` when you know the filename but not the path
 - `rg`
 - `grep`
+  `grep -l TODO /workspace` returns matching file paths
 - `wc -l`
 - `mkdir`
 - `touch`
 - `edit`
 - `patch`
 - `tree`
+- `xargs`
+  Supported in a limited form such as `find ... | xargs grep -l TODO`
 - `echo`
 - `help`
 
@@ -195,9 +198,10 @@ Recommended agent bootstrap prompt:
 You are in a virtual workspace, not a full OS shell.
 
 Use workspace.bash(db, "...") with only these commands:
-pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
+pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, xargs, echo, help
 Use `ls -l` when you need type/size/version/mtime.
 When you know the filename but not the path, start with `find /workspace -name <name>`.
+When you need file-path-only content matches, prefer `grep -l <pattern> /workspace`.
 
 Write rules:
 - stay under /workspace

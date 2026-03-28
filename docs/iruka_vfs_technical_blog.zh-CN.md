@@ -244,6 +244,7 @@ workspace.enter_agent_mode(db)
 - `edit`
 - `patch`
 - `tree`
+- `xargs`
 - `echo`
 - `touch`
 

@@ -19,8 +19,8 @@ Supported commands:
   ls -l / ls -la also work and show type, size, version, and mtime
 - cat <file>
 - find [path] [-type f|d] [-name <glob>]
-- rg <pattern> [path]
-- grep <pattern> [path]
+- rg [-l] <pattern> [path...]
+- grep [-l] <pattern> [path...]
 - wc -l <file>
 - mkdir [-p] <path>
 - touch <file>
@@ -28,11 +28,13 @@ Supported commands:
 - patch --path <file> --find <text> --replace <text>
 - patch --path <file> --unified <diff>
 - tree
+- xargs <command> [args...]
 - echo <text>
 - help
 
 Discovery tips:
 - Use find /workspace -name brief.md when you know the filename but not the path
+- find also supports a limited -exec form, for example: find /workspace -type f -exec grep -l TODO {} \\;
 - Use tree when you need the top-level directory layout
 - Each bash result also includes workspace_outline with the top-level directory skeleton
 
@@ -206,22 +208,61 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         return service._exec_find(db, session, args)
 
     if name in {"rg", "grep"}:
-        if len(args) < 1:
+        flags = [arg for arg in args if arg.startswith("-")]
+        unsupported_flags = sorted(flag for flag in flags if flag != "-l")
+        if unsupported_flags:
+            return VirtualCommandResult("", f"{name}: unsupported option: {unsupported_flags[0]}", 1, {})
+        non_flags = [arg for arg in args if not arg.startswith("-")]
+        if len(non_flags) < 1:
             return VirtualCommandResult("", f"{name}: missing pattern", 1, {})
-        pattern = args[0]
-        if len(args) == 1:
+        pattern = non_flags[0]
+        targets = non_flags[1:]
+        list_only = "-l" in flags
+        if not targets:
             matched = service._search_text_lines(input_text, pattern)
             if not matched:
                 return VirtualCommandResult("", "", 1, {"match_count": 0, "source": "stdin"})
+            if list_only:
+                return VirtualCommandResult("stdin", "", 0, {"match_count": 1, "source": "stdin", "flags": sorted(flags)})
             return VirtualCommandResult("\n".join(matched), "", 0, {"match_count": len(matched), "source": "stdin"})
-        target = args[1]
-        node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, target)
-        if not node:
-            return VirtualCommandResult("", service._format_missing_path_error(name, target, directory_style=True), 1, {})
-        matches = service._search_nodes(db, session.workspace_id, node, pattern)
-        if not matches:
+        outputs: list[str] = []
+        match_count = 0
+        seen_outputs: set[str] = set()
+        for target in targets:
+            node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, target)
+            if not node:
+                return VirtualCommandResult("", service._format_missing_path_error(name, target, directory_style=True), 1, {})
+            matches = (
+                service._search_matching_file_paths(db, session.workspace_id, node, pattern)
+                if list_only
+                else service._search_nodes(db, session.workspace_id, node, pattern)
+            )
+            match_count += len(matches)
+            for item in matches:
+                if item in seen_outputs:
+                    continue
+                seen_outputs.add(item)
+                outputs.append(item)
+        if not outputs:
             return VirtualCommandResult("", "", 1, {"match_count": 0})
-        return VirtualCommandResult("\n".join(matches), "", 0, {"match_count": len(matches), "pattern": pattern})
+        return VirtualCommandResult(
+            "\n".join(outputs),
+            "",
+            0,
+            {"match_count": match_count, "pattern": pattern, "flags": sorted(flags), "targets": list(targets)},
+        )
+
+    if name == "xargs":
+        if not args:
+            return VirtualCommandResult("", "xargs: missing command", 1, {})
+        stdin_paths = [line.strip() for line in input_text.splitlines() if line.strip()]
+        if not stdin_paths:
+            return VirtualCommandResult("", "", 0, {"input_count": 0})
+        result = exec_argv(db, session, args + stdin_paths, input_text="")
+        artifacts = dict(result.artifacts or {})
+        artifacts["input_count"] = len(stdin_paths)
+        artifacts["expanded_argv"] = args + stdin_paths
+        return VirtualCommandResult(result.stdout, result.stderr, result.exit_code, artifacts)
 
     if name == "wc":
         return service._exec_wc(db, session, args, input_text=input_text)
@@ -255,6 +296,7 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
                     "edit",
                     "patch",
                     "tree",
+                    "xargs",
                     "echo",
                     "help",
                 ],
@@ -322,6 +364,14 @@ def apply_redirect(db: Session, session, *, output_text: str, redirect: dict[str
     allowed, deny_reason = service._allow_write_path(db, session, resolved_target)
     if not allowed:
         return VirtualCommandResult("", f"redirect: {deny_reason}", 1, {"path": resolved_target})
+    conflict = service._detect_ambiguous_create_target(db, session, target_path, node=node)
+    if conflict is not None:
+        return VirtualCommandResult(
+            "",
+            service._format_ambiguous_create_target_message(conflict, source="redirect"),
+            1,
+            conflict,
+        )
 
     if not node:
         parent, name = service._resolve_parent_for_create(db, session.workspace_id, session.cwd_node_id, target_path)

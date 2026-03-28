@@ -54,6 +54,25 @@ def search_nodes(db: Session, workspace_id: int, node, pattern: str) -> list[str
     return matches
 
 
+def search_matching_file_paths(db: Session, workspace_id: int, node, pattern: str) -> list[str]:
+    from iruka_vfs import service
+
+    regex = safe_compile(pattern)
+    file_nodes = collect_files_for_search(db, workspace_id, node, pattern=pattern, regex=regex)
+    matches: list[str] = []
+    for item in file_nodes:
+        content_text = service._get_node_content(db, item)
+        file_hit = False
+        for line in content_text.splitlines():
+            hit = bool(regex.search(line)) if regex else pattern.lower() in line.lower()
+            if hit:
+                file_hit = True
+                break
+        if file_hit:
+            matches.append(search_display_path(db, item))
+    return matches
+
+
 def search_display_path(db: Session, node) -> str:
     from iruka_vfs import service
 
@@ -66,8 +85,9 @@ def exec_find(db: Session, session, args: list[str]) -> VirtualCommandResult:
     from iruka_vfs import service
 
     target = "."
-    name_pattern: str | None = None
+    name_patterns: list[str] = []
     type_filter: str | None = None
+    exec_tokens: list[str] | None = None
     positional: list[str] = []
     idx = 0
 
@@ -76,7 +96,7 @@ def exec_find(db: Session, session, args: list[str]) -> VirtualCommandResult:
         if token == "-name":
             if idx + 1 >= len(args):
                 return VirtualCommandResult("", "find: missing pattern after -name", 1, {})
-            name_pattern = args[idx + 1]
+            name_patterns.append(args[idx + 1])
             idx += 2
             continue
         if token == "-type":
@@ -87,6 +107,30 @@ def exec_find(db: Session, session, args: list[str]) -> VirtualCommandResult:
                 return VirtualCommandResult("", f"find: unsupported -type value: {raw_type}", 1, {})
             type_filter = "file" if raw_type == "f" else "dir"
             idx += 2
+            continue
+        if token == "-exec":
+            if exec_tokens is not None:
+                return VirtualCommandResult("", "find: only a single -exec clause is supported", 1, {})
+            end_idx = idx + 1
+            while end_idx < len(args) and args[end_idx] != ";":
+                end_idx += 1
+            if end_idx >= len(args):
+                return VirtualCommandResult(
+                    "",
+                    "find: missing ';' terminator for -exec. Example: find /workspace -type f -exec grep -l TODO {} \\;",
+                    1,
+                    {},
+                )
+            exec_tokens = args[idx + 1 : end_idx]
+            if not exec_tokens:
+                return VirtualCommandResult("", "find: missing command after -exec", 1, {})
+            idx = end_idx + 1
+            continue
+        if token in {"(", ")"}:
+            idx += 1
+            continue
+        if token == "-o":
+            idx += 1
             continue
         if token.startswith("-"):
             return VirtualCommandResult("", f"find: unsupported option: {token}", 1, {})
@@ -102,7 +146,23 @@ def exec_find(db: Session, session, args: list[str]) -> VirtualCommandResult:
     if not node:
         return VirtualCommandResult("", format_missing_path_error("find", target, directory_style=True), 1, {})
 
-    matches = find_paths(db, session.workspace_id, node, name_pattern=name_pattern, node_type=type_filter)
+    matches = _resolve_find_matches(
+        db,
+        session,
+        node,
+        name_patterns=name_patterns,
+        type_filter=type_filter,
+    )
+    if exec_tokens is not None:
+        return _run_find_exec(
+            db,
+            session,
+            matches,
+            exec_tokens,
+            root_path=service._node_path(db, node),
+            name_patterns=name_patterns,
+            type_filter=type_filter,
+        )
     if not matches:
         return VirtualCommandResult(
             "",
@@ -111,7 +171,7 @@ def exec_find(db: Session, session, args: list[str]) -> VirtualCommandResult:
             {
                 "path": service._node_path(db, node),
                 "match_count": 0,
-                "name_pattern": name_pattern,
+                "name_patterns": list(name_patterns),
                 "type_filter": type_filter,
             },
         )
@@ -122,8 +182,86 @@ def exec_find(db: Session, session, args: list[str]) -> VirtualCommandResult:
         {
             "path": service._node_path(db, node),
             "match_count": len(matches),
-            "name_pattern": name_pattern,
+            "name_patterns": list(name_patterns),
             "type_filter": type_filter,
+        },
+    )
+
+
+def _resolve_find_matches(db: Session, session, node, *, name_patterns: list[str], type_filter: str | None) -> list[str]:
+    candidates: list[str] = []
+    if not name_patterns:
+        return find_paths(db, session.workspace_id, node, node_type=type_filter)
+    seen: set[str] = set()
+    for pattern in name_patterns:
+        for path in find_paths(db, session.workspace_id, node, name_pattern=pattern, node_type=type_filter):
+            if path in seen:
+                continue
+            seen.add(path)
+            candidates.append(path)
+    candidates.sort()
+    return candidates
+
+
+def _run_find_exec(
+    db: Session,
+    session,
+    matches: list[str],
+    exec_tokens: list[str],
+    *,
+    root_path: str,
+    name_patterns: list[str],
+    type_filter: str | None,
+) -> VirtualCommandResult:
+    from iruka_vfs import service
+
+    if "{}" not in exec_tokens:
+        return VirtualCommandResult("", "find: -exec command must include {}", 1, {})
+
+    stdout_lines: list[str] = []
+    nested_results: list[dict[str, object]] = []
+    for matched_path in matches:
+        argv = [matched_path if token == "{}" else token for token in exec_tokens]
+        result = service._exec_argv(db, session, argv, input_text="")
+        nested_results.append({"argv": argv, "exit_code": result.exit_code, "artifacts": result.artifacts})
+        if result.exit_code == 0 and result.stdout:
+            stdout_lines.extend(line for line in result.stdout.splitlines() if line)
+            continue
+        if result.exit_code == 1 and argv and argv[0] in {"grep", "rg"}:
+            continue
+        return VirtualCommandResult(
+            result.stdout,
+            result.stderr,
+            result.exit_code,
+            {
+                "path": root_path,
+                "match_count": len(matches),
+                "name_patterns": list(name_patterns),
+                "type_filter": type_filter,
+                "exec": exec_tokens,
+                "exec_results": nested_results,
+            },
+        )
+
+    deduped: list[str] = []
+    seen_stdout: set[str] = set()
+    for line in stdout_lines:
+        if line in seen_stdout:
+            continue
+        seen_stdout.add(line)
+        deduped.append(line)
+    exit_code = 0 if deduped or matches else 0
+    return VirtualCommandResult(
+        "\n".join(deduped),
+        "",
+        exit_code,
+        {
+            "path": root_path,
+            "match_count": len(matches),
+            "name_patterns": list(name_patterns),
+            "type_filter": type_filter,
+            "exec": exec_tokens,
+            "exec_results": nested_results,
         },
     )
 
