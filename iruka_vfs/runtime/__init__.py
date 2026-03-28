@@ -1,7 +1,18 @@
 from __future__ import annotations
 
 from iruka_vfs.runtime.editing import apply_unified_patch, build_simple_patch, exec_edit, exec_patch
-from iruka_vfs.runtime.fs_commands import count_lines, exec_mkdir, exec_touch, exec_wc
+from iruka_vfs.runtime.fs_commands import (
+    count_lines,
+    exec_basename,
+    exec_cp,
+    exec_dirname,
+    exec_mkdir,
+    exec_mv,
+    exec_rm,
+    exec_sort,
+    exec_touch,
+    exec_wc,
+)
 from iruka_vfs.runtime.search import (
     collect_files,
     collect_files_for_search,
@@ -18,11 +29,13 @@ from iruka_vfs.runtime.search import (
 )
 from iruka_vfs.runtime.executor import apply_redirect, exec_argv, run_command_chain, run_single_command
 from iruka_vfs.runtime.filesystem import (
+    delete_node,
     get_or_create_child_dir,
     get_or_create_child_file,
     get_or_create_root,
     get_or_create_session,
     mkdir_parents,
+    move_node,
     must_get_node,
     write_file,
 )
@@ -36,11 +49,18 @@ __all__ = [
     "collect_files_for_search",
     "count_lines",
     "count_text_matches",
+    "delete_node",
+    "exec_basename",
+    "exec_cp",
+    "exec_dirname",
     "exec_find",
     "exec_argv",
     "exec_edit",
     "exec_mkdir",
+    "exec_mv",
     "exec_patch",
+    "exec_rm",
+    "exec_sort",
     "exec_touch",
     "exec_wc",
     "find_paths",
@@ -50,6 +70,7 @@ __all__ = [
     "get_or_create_root",
     "get_or_create_session",
     "mkdir_parents",
+    "move_node",
     "must_get_node",
     "prepare_artifacts_for_log",
     "run_command_chain",

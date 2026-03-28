@@ -272,6 +272,96 @@ def _mutate_write_file(service, mirror, node, content: str):
     return next_version, True
 
 
+def move_node(db: Session, node, *, parent_id: int, name: str) -> int:
+    from iruka_vfs import service
+
+    next_version = service._mutate_workspace_mirror(
+        int(node.workspace_id),
+        tenant_key=getattr(node, "tenant_id", None),
+        mutate=lambda mirror: _mutate_move_node(service, mirror, node, parent_id=parent_id, name=name),
+    )
+    if next_version is not None:
+        _persist_node_metadata(db, node, parent_id=parent_id, name=name, version_no=next_version)
+        return int(next_version)
+    next_version = int(getattr(node, "version_no", 1) or 1) + 1
+    _persist_node_metadata(db, node, parent_id=parent_id, name=name, version_no=next_version)
+    return int(next_version)
+
+
+def _mutate_move_node(service, mirror, node, *, parent_id: int, name: str):
+    mirror_node = mirror.nodes.get(int(node.id))
+    if mirror_node is None:
+        mirror.nodes[int(node.id)] = node
+        mirror_node = node
+        service._rebuild_workspace_mirror_indexes_locked(mirror)
+    mirror_node.parent_id = int(parent_id)
+    mirror_node.name = str(name)
+    mirror_node.version_no = int(mirror_node.version_no or 1) + 1
+    mirror_node.updated_at = datetime.utcnow()
+    mirror.dirty_structure_node_ids.add(int(mirror_node.id))
+    mirror.revision += 1
+    service._rebuild_workspace_mirror_indexes_locked(mirror)
+    _cache_metric_inc("write_ops")
+    return int(mirror_node.version_no), True
+
+
+def delete_node(db: Session, node) -> None:
+    from iruka_vfs import service
+
+    tenant_key = getattr(node, "tenant_id", None)
+    service._mutate_workspace_mirror(
+        int(node.workspace_id),
+        tenant_key=tenant_key,
+        mutate=lambda mirror: _mutate_delete_node(service, mirror, node),
+    )
+    _persist_delete_node(db, node)
+
+
+def _mutate_delete_node(service, mirror, node):
+    node_id = int(node.id)
+    mirror_node = mirror.nodes.pop(node_id, None)
+    if mirror_node is None:
+        return False, False
+    parent_id = int(mirror_node.parent_id) if mirror_node.parent_id is not None else None
+    if parent_id is not None:
+        children = mirror.children_by_parent.get(parent_id, [])
+        mirror.children_by_parent[parent_id] = [child_id for child_id in children if int(child_id) != node_id]
+    mirror.dirty_structure_node_ids.discard(node_id)
+    mirror.dirty_content_node_ids.discard(node_id)
+    service._rebuild_workspace_mirror_indexes_locked(mirror)
+    mirror.revision += 1
+    _cache_metric_inc("write_ops")
+    return True, True
+
+
+def _persist_node_metadata(db: Session, node, *, parent_id: int, name: str, version_no: int) -> None:
+    from iruka_vfs import service
+
+    tenant_key = service._effective_tenant_key(getattr(node, "tenant_id", None))
+    service._repositories.node.update_node_content(
+        db,
+        node_id=int(node.id),
+        tenant_key=tenant_key,
+        parent_id=int(parent_id),
+        name=str(name),
+        node_type=str(getattr(node, "node_type", "file") or "file"),
+        content_text=str(getattr(node, "content_text", "") or ""),
+        version_no=int(version_no),
+    )
+
+
+def _persist_delete_node(db: Session, node) -> None:
+    from iruka_vfs import service
+
+    repository = service._repositories.node
+    if hasattr(repository, "state"):
+        repository.state.nodes.pop(int(node.id), None)
+        return
+    if db is not None:
+        db.delete(node)
+        db.flush()
+
+
 def must_get_node(db: Session, node_id: int | None):
     from iruka_vfs import service
 

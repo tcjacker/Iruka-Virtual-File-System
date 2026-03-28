@@ -24,6 +24,12 @@ Supported commands:
 - wc -l <file>
 - mkdir [-p] <path>
 - touch <file>
+- cp <source> <target>
+- mv <source> <target>
+- rm <file>
+- sort [file...]
+- basename <path>
+- dirname <path>
 - edit <file> --find <text> --replace <text> [--all]
 - patch --path <file> --find <text> --replace <text>
 - patch --path <file> --unified <diff>
@@ -323,6 +329,18 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         return service._exec_wc(db, session, args, input_text=input_text)
     if name == "mkdir":
         return service._exec_mkdir(db, session, args)
+    if name == "cp":
+        return service._exec_cp(db, session, args)
+    if name == "mv":
+        return service._exec_mv(db, session, args)
+    if name == "rm":
+        return service._exec_rm(db, session, args)
+    if name == "sort":
+        return service._exec_sort(db, session, args, input_text=input_text)
+    if name == "basename":
+        return service._exec_basename(args)
+    if name == "dirname":
+        return service._exec_dirname(args)
     if name == "edit":
         return service._exec_edit(db, session, args)
     if name == "patch":
@@ -350,6 +368,12 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
                     "wc",
                     "mkdir",
                     "touch",
+                    "cp",
+                    "mv",
+                    "rm",
+                    "sort",
+                    "basename",
+                    "dirname",
                     "edit",
                     "patch",
                     "tree",

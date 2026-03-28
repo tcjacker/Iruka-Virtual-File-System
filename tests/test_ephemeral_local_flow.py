@@ -790,6 +790,10 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertIn("- find [path] [-type f|d] [-name <glob>]", result["stdout"])
             self.assertIn("- grep [-l|-c|-v] <pattern> [path...]", result["stdout"])
             self.assertIn("- xargs <command> [args...]", result["stdout"])
+            self.assertIn("- cp <source> <target>", result["stdout"])
+            self.assertIn("- mv <source> <target>", result["stdout"])
+            self.assertIn("- rm <file>", result["stdout"])
+            self.assertIn("- sort [file...]", result["stdout"])
             self.assertIn(">| overwrites an existing file explicitly", result["stdout"])
             self.assertIn("find /workspace -name <file> -> cat -> edit/patch", result["stdout"])
             self.assertIn("2>/dev/null and restricted || fallbacks (true, :, help)", result["stdout"])
@@ -806,6 +810,12 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                     "wc",
                     "mkdir",
                     "touch",
+                    "cp",
+                    "mv",
+                    "rm",
+                    "sort",
+                    "basename",
+                    "dirname",
                     "edit",
                     "patch",
                     "tree",
@@ -988,6 +998,160 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             )
             self.assertEqual(result["exit_code"], 0)
             self.assertEqual(result["stdout"], "2")
+
+    def test_cp_copies_file_content(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 3254, initial_text="copy-me")
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cp /workspace/files/demo.txt /workspace/files/copy.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            copied = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/files/copy.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(copied["stdout"], "copy-me")
+
+    def test_mv_renames_file(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 3255, initial_text="move-me")
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "mv /workspace/files/demo.txt /workspace/files/renamed.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            missing = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/files/demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(missing["exit_code"], 1)
+            renamed = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/files/renamed.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(renamed["stdout"], "move-me")
+
+    def test_rm_removes_single_file(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 3256, initial_text="remove-me")
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "rm /workspace/files/demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            missing = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/files/demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(missing["exit_code"], 1)
+
+    def test_sort_sorts_pipeline_input(self) -> None:
+        workspace = VFSWorkspace(
+            id=3257,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-3257",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-3257",
+            tenant_id="test-tenant",
+            workspace_files={"/workspace/files/demo.txt": "zeta\nalpha\nbeta\n"},
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/files/demo.txt | sort",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["stdout"], "alpha\nbeta\nzeta")
+
+    def test_sort_sorts_file_lines(self) -> None:
+        workspace = VFSWorkspace(
+            id=3258,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-3258",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-3258",
+            tenant_id="test-tenant",
+            workspace_files={"/workspace/files/demo.txt": "zeta\nalpha\nbeta\n"},
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "sort /workspace/files/demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["stdout"], "alpha\nbeta\nzeta")
+
+    def test_basename_and_dirname_work(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 3259)
+            base = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "basename /workspace/files/demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            directory = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "dirname /workspace/files/demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(base["stdout"], "demo.txt")
+            self.assertEqual(directory["stdout"], "/workspace/files")
 
     def test_find_exec_grep_l_finds_matching_files(self) -> None:
         workspace = VFSWorkspace(
