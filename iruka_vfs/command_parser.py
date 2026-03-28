@@ -71,6 +71,7 @@ def split_chain(raw_cmd: str) -> list[dict[str, str]]:
 
 
 def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
+    cmd, compat = _extract_compatible_shell_tails(cmd)
     unsupported_error = _detect_unsupported_shell_syntax(cmd)
     if unsupported_error:
         return {}, unsupported_error
@@ -91,6 +92,8 @@ def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
     current: list[str] = []
     redirect: dict[str, str] | None = None
     merge_stderr = False
+    discard_stderr = bool(compat["discard_stderr"])
+    ignore_error = bool(compat["ignore_error"])
     idx = 0
     while idx < len(tokens):
         token = tokens[idx]
@@ -123,7 +126,15 @@ def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
         pipeline.append(current)
     if not pipeline:
         return {}, "parse error: empty command"
-    return {"pipeline": pipeline, "redirect": redirect, "merge_stderr": merge_stderr, "stdin_text": stdin_text}, None
+    return {
+        "pipeline": pipeline,
+        "redirect": redirect,
+        "merge_stderr": merge_stderr,
+        "discard_stderr": discard_stderr,
+        "ignore_error": ignore_error,
+        "or_fallback": compat["or_fallback"],
+        "stdin_text": stdin_text,
+    }, None
 
 
 def shell_tokens(cmd: str) -> list[str]:
@@ -253,7 +264,11 @@ def _detect_unsupported_shell_syntax(cmd: str) -> str | None:
     if not stripped:
         return None
     if "||" in stripped:
-        return "parse error: || is not supported; use && or ;"
+        fallback = _top_level_or_parts(stripped)
+        if fallback is not None:
+            _, fallback_text = fallback
+            return _format_unsupported_or_error(fallback_text)
+        return _format_unsupported_or_error("")
     if "$(" in stripped or "`" in stripped:
         return "parse error: command substitution is not supported; use plain commands only"
     if "<<<" in stripped:
@@ -297,3 +312,77 @@ def _format_shlex_parse_error(cmd: str, exc: ValueError) -> str:
             )
         return "parse error: stray backslash escape; use plain commands only"
     return f"parse error: {message}"
+
+
+def _extract_compatible_shell_tails(cmd: str) -> tuple[str, dict[str, bool]]:
+    stripped = cmd.strip()
+    compat = {"discard_stderr": False, "ignore_error": False, "or_fallback": None}
+    if not stripped:
+        return cmd, compat
+
+    if re.search(r"(?:^|\s)2>/dev/null(?:\s|$)", stripped):
+        stripped = re.sub(r"(?:^|\s)2>/dev/null(?=\s|$)", " ", stripped)
+        compat["discard_stderr"] = True
+
+    or_parts = _top_level_or_parts(stripped)
+    if or_parts is None:
+        return stripped, compat
+
+    primary, fallback_text = or_parts
+    fallback_name = fallback_text.strip()
+    if fallback_name == "true":
+        compat["ignore_error"] = True
+        compat["or_fallback"] = ["true"]
+        return primary, compat
+    if fallback_name == ":":
+        compat["ignore_error"] = True
+        compat["or_fallback"] = [":"]
+        return primary, compat
+    if fallback_name == "help":
+        compat["or_fallback"] = ["help"]
+        return primary, compat
+
+    return stripped, compat
+
+
+def _top_level_or_parts(cmd: str) -> tuple[str, str] | None:
+    in_single = False
+    in_double = False
+    escaped = False
+    idx = 0
+    while idx < len(cmd) - 1:
+        token = cmd[idx]
+        if escaped:
+            escaped = False
+            idx += 1
+            continue
+        if token == "\\":
+            escaped = True
+            idx += 1
+            continue
+        if token == "'" and not in_double:
+            in_single = not in_single
+            idx += 1
+            continue
+        if token == '"' and not in_single:
+            in_double = not in_double
+            idx += 1
+            continue
+        if not in_single and not in_double and cmd.startswith("||", idx):
+            return cmd[:idx].rstrip(), cmd[idx + 2 :].strip()
+        idx += 1
+    return None
+
+
+def _format_unsupported_or_error(fallback_text: str) -> str:
+    if fallback_text:
+        return (
+            f"parse error: unsupported `|| {fallback_text}` fallback. "
+            "Supported forms are `|| true`, `|| :`, and `|| help`. "
+            "Otherwise remove the `|| ...` tail and run the main command directly, or use && / ; explicitly."
+        )
+    return (
+        "parse error: unsupported || fallback. "
+        "Supported forms are `|| true`, `|| :`, and `|| help`. "
+        "Otherwise remove the `|| ...` tail and run the main command directly, or use && / ; explicitly."
+    )

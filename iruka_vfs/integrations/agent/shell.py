@@ -87,14 +87,16 @@ def run_virtual_bash(
         started_at = transaction["started_at"]
         ended_at = transaction["ended_at"]
         workspace_outline = service.render_virtual_tree(db, workspace.id, max_depth=3)
+        workspace_bootstrap = _build_workspace_bootstrap(service, db, workspace)
         discovery_hint = (
             "If a path is unknown, start with find /workspace -name <file>, then cat, then edit/patch. "
-            "Use >| when overwriting an existing file."
+            "Use >| when overwriting an existing file. Limited shell tails 2>/dev/null and trailing || true are supported."
         )
         log_stdout, stdout_meta = truncate_for_log(result.stdout, VFS_COMMAND_LOG_MAX_STDOUT_CHARS)
         log_stderr, stderr_meta = truncate_for_log(result.stderr, VFS_COMMAND_LOG_MAX_STDERR_CHARS)
         result_artifacts = dict(result.artifacts or {})
         result_artifacts["workspace_outline"] = workspace_outline
+        result_artifacts["workspace_bootstrap"] = workspace_bootstrap
         result_artifacts["discovery_hint"] = discovery_hint
         log_artifacts = prepare_log_artifacts(
             result_artifacts,
@@ -138,6 +140,7 @@ def run_virtual_bash(
         "artifacts": result_artifacts,
         "cwd": cwd_path,
         "workspace_outline": workspace_outline,
+        "workspace_bootstrap": workspace_bootstrap,
         "discovery_hint": discovery_hint,
     }
 
@@ -200,6 +203,20 @@ def _execute_virtual_bash_transaction(service, db: Session, workspace: Any, tena
         scope_key=scope_key,
         execute=execute,
     )
+
+
+def _build_workspace_bootstrap(service, db: Session, workspace: Any) -> str:
+    workspace_root = service._get_or_create_root(db, int(workspace.id))
+    file_paths = service._find_paths(db, int(workspace.id), workspace_root, node_type="file")[:12]
+    lines = [
+        "Workspace bootstrap:",
+        service.render_virtual_tree(db, int(workspace.id), max_depth=4),
+    ]
+    if file_paths:
+        lines.append("Known files:")
+        lines.extend(f"- {path}" for path in file_paths)
+    lines.append("If a path is unknown, use: find /workspace -name <file>")
+    return "\n".join(lines)
 
 
 __all__ = ["run_virtual_bash"]

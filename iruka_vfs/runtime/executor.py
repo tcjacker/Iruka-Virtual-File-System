@@ -38,6 +38,7 @@ Discovery tips:
 - find also supports a limited -exec form, for example: find /workspace -type f -exec grep -l TODO {} \\;
 - Use tree when you need the top-level directory layout
 - Each bash result also includes workspace_outline with the top-level directory skeleton and first file layer
+- Limited shell-compat tails are supported: 2>/dev/null and restricted || fallbacks (true, :, help)
 
 Write rules:
 - All writes must stay under /workspace
@@ -95,6 +96,9 @@ def run_single_command(db: Session, session, cmd: str) -> VirtualCommandResult:
     pipeline = parsed.get("pipeline") or []
     redirect = parsed.get("redirect")
     merge_stderr = bool(parsed.get("merge_stderr"))
+    discard_stderr = bool(parsed.get("discard_stderr"))
+    ignore_error = bool(parsed.get("ignore_error"))
+    or_fallback = list(parsed.get("or_fallback") or [])
     input_text = str(parsed.get("stdin_text") or "")
     pipeline_artifacts: list[dict[str, Any]] = []
     last_result = VirtualCommandResult("", "", 0, {})
@@ -105,17 +109,43 @@ def run_single_command(db: Session, session, cmd: str) -> VirtualCommandResult:
         if last_result.exit_code != 0:
             stdout = last_result.stdout
             stderr = last_result.stderr
+            if discard_stderr:
+                stderr = ""
             if merge_stderr and stderr:
                 stdout = (stdout + ("\n" if stdout and not stdout.endswith("\n") else "") + stderr).strip()
                 stderr = ""
             artifacts = {"pipeline": pipeline_artifacts}
             if isinstance(last_result.artifacts, dict):
                 artifacts.update(last_result.artifacts)
+            if ignore_error:
+                artifacts["ignored_error"] = True
+                artifacts["or_fallback"] = or_fallback
+                return VirtualCommandResult(stdout=stdout, stderr="" if discard_stderr else stderr, exit_code=0, artifacts=artifacts)
+            if or_fallback:
+                fallback_result = exec_argv(db, session, or_fallback, input_text="")
+                artifacts["or_fallback"] = or_fallback
+                artifacts["fallback_exit_code"] = fallback_result.exit_code
+                if isinstance(fallback_result.artifacts, dict):
+                    artifacts["fallback_artifacts"] = fallback_result.artifacts
+                combined_stdout = "\n".join(
+                    chunk for chunk in [stdout, fallback_result.stdout] if chunk
+                ).strip()
+                combined_stderr = "\n".join(
+                    chunk for chunk in [stderr, "" if discard_stderr else fallback_result.stderr] if chunk
+                ).strip()
+                return VirtualCommandResult(
+                    stdout=combined_stdout,
+                    stderr=combined_stderr,
+                    exit_code=fallback_result.exit_code,
+                    artifacts=artifacts,
+                )
             return VirtualCommandResult(stdout=stdout, stderr=stderr, exit_code=last_result.exit_code, artifacts=artifacts)
         input_text = last_result.stdout
 
     effective_stdout = last_result.stdout
     effective_stderr = last_result.stderr
+    if discard_stderr:
+        effective_stderr = ""
     if merge_stderr and effective_stderr:
         effective_stdout = (effective_stdout + ("\n" if effective_stdout and not effective_stdout.endswith("\n") else "") + effective_stderr).strip()
         effective_stderr = ""
@@ -301,6 +331,8 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         return VirtualCommandResult(service.render_virtual_tree(db, session.workspace_id), "", 0, {})
     if name == "echo":
         return VirtualCommandResult(" ".join(args), "", 0, {})
+    if name == ":":
+        return VirtualCommandResult("", "", 0, {"noop": True})
     if name == "help":
         return VirtualCommandResult(
             HELP_TEXT,
@@ -327,6 +359,7 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
                 ],
                 "redirects": [">", ">|", ">>"],
                 "heredoc": {"supported": True, "pattern": "cat <<'EOF' > /workspace/file ... EOF"},
+                "compat_tails": ["2>/dev/null", "|| true", "|| :", "|| help"],
                 "write_root": "/workspace",
             },
         )

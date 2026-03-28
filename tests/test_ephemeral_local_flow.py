@@ -792,6 +792,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertIn("- xargs <command> [args...]", result["stdout"])
             self.assertIn(">| overwrites an existing file explicitly", result["stdout"])
             self.assertIn("find /workspace -name <file> -> cat -> edit/patch", result["stdout"])
+            self.assertIn("2>/dev/null and restricted || fallbacks (true, :, help)", result["stdout"])
             self.assertEqual(
                 result["artifacts"]["supported_commands"],
                 [
@@ -827,6 +828,8 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["exit_code"], 0)
             self.assertEqual(result["workspace_outline"], "/\n└── workspace/\n    └── files/\n        └── demo.txt")
             self.assertEqual(result["artifacts"]["workspace_outline"], "/\n└── workspace/\n    └── files/\n        └── demo.txt")
+            self.assertIn("Known files:\n- /workspace/files/demo.txt", result["workspace_bootstrap"])
+            self.assertEqual(result["workspace_bootstrap"], result["artifacts"]["workspace_bootstrap"])
             self.assertIn("find /workspace -name <file>", result["discovery_hint"])
             self.assertEqual(result["discovery_hint"], result["artifacts"]["discovery_hint"])
 
@@ -1080,6 +1083,85 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             )
             self.assertEqual(result["exit_code"], 2)
             self.assertEqual(result["stderr"], "parse error: redirect target is missing")
+
+    def test_stderr_devnull_and_or_true_are_supported_as_limited_tails(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 3101)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/files/missing.txt 2>/dev/null || true",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["stdout"], "")
+            self.assertEqual(result["stderr"], "")
+            self.assertTrue(result["artifacts"]["ignored_error"])
+            self.assertEqual(result["artifacts"]["or_fallback"], ["true"])
+
+    def test_stderr_devnull_suppresses_error_output(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 3102)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/files/missing.txt 2>/dev/null",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 1)
+            self.assertEqual(result["stderr"], "")
+
+    def test_or_colon_is_supported_as_noop_fallback(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 31021)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/files/missing.txt || :",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(
+                result["stderr"],
+                "cat: /workspace/files/missing.txt: No such file. Try: find /workspace -name missing.txt or tree",
+            )
+            self.assertEqual(result["artifacts"]["or_fallback"], [":"])
+
+    def test_or_help_is_supported_as_guided_fallback(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 31022)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "doesnotexist || help",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertIn("unsupported command: doesnotexist. Try: help", result["stderr"])
+            self.assertIn("Supported commands:", result["stdout"])
+            self.assertEqual(result["artifacts"]["or_fallback"], ["help"])
+
+    def test_parse_error_for_other_or_or_forms_is_actionable(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 3103)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "find /workspace -type f || false",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 2)
+            self.assertEqual(
+                result["stderr"],
+                "parse error: unsupported `|| false` fallback. "
+                "Supported forms are `|| true`, `|| :`, and `|| help`. "
+                "Otherwise remove the `|| ...` tail and run the main command directly, or use && / ; explicitly.",
+            )
 
     def test_redirect_fails_when_target_is_directory(self) -> None:
         with self.SessionLocal() as db:
