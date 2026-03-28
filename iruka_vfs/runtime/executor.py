@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import PurePosixPath
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -17,6 +18,7 @@ Supported commands:
 - ls [path]
   ls -l / ls -la also work and show type, size, version, and mtime
 - cat <file>
+- find [path] [-type f|d] [-name <glob>]
 - rg <pattern> [path]
 - grep <pattern> [path]
 - wc -l <file>
@@ -28,6 +30,11 @@ Supported commands:
 - tree
 - echo <text>
 - help
+
+Discovery tips:
+- Use find /workspace -name brief.md when you know the filename but not the path
+- Use tree when you need the top-level directory layout
+- Each bash result also includes workspace_outline with the top-level directory skeleton
 
 Write rules:
 - All writes must stay under /workspace
@@ -168,7 +175,7 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         target = targets[0] if targets else "."
         node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, target)
         if not node:
-            return VirtualCommandResult("", f"ls: cannot access '{target}': No such file or directory", 1, {})
+            return VirtualCommandResult("", _format_ls_missing_target(target), 1, {})
         long_format = bool(flags & {"-l", "-la", "-al"})
         if node.node_type == "file":
             label = _format_ls_entry(node, long_format=long_format)
@@ -190,10 +197,13 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         for target in args:
             node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, target)
             if not node or node.node_type != "file":
-                return VirtualCommandResult("", f"cat: {target}: No such file", 1, {})
+                return VirtualCommandResult("", service._format_missing_path_error("cat", target), 1, {})
             outputs.append(service._get_node_content(db, node))
             files.append(service._node_path(db, node))
         return VirtualCommandResult("\n".join(outputs), "", 0, {"files": files})
+
+    if name == "find":
+        return service._exec_find(db, session, args)
 
     if name in {"rg", "grep"}:
         if len(args) < 1:
@@ -207,7 +217,7 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         target = args[1]
         node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, target)
         if not node:
-            return VirtualCommandResult("", f"{name}: {target}: No such file or directory", 1, {})
+            return VirtualCommandResult("", service._format_missing_path_error(name, target, directory_style=True), 1, {})
         matches = service._search_nodes(db, session.workspace_id, node, pattern)
         if not matches:
             return VirtualCommandResult("", "", 1, {"match_count": 0})
@@ -236,6 +246,7 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
                     "cd",
                     "ls",
                     "cat",
+                    "find",
                     "rg",
                     "grep",
                     "wc",
@@ -282,6 +293,16 @@ def _format_ls_timestamp(value: datetime | None) -> str:
     if not isinstance(value, datetime):
         return "-"
     return value.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _format_ls_missing_target(target: str) -> str:
+    basename = PurePosixPath(target).name or PurePosixPath(target).parent.name
+    if basename:
+        return (
+            f"ls: cannot access '{target}': No such file or directory. "
+            f"Try: find /workspace -name '{basename}' or tree"
+        )
+    return f"ls: cannot access '{target}': No such file or directory. Try: ls -la /workspace or tree"
 
 
 def apply_redirect(db: Session, session, *, output_text: str, redirect: dict[str, str]) -> VirtualCommandResult:

@@ -466,7 +466,10 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 tenant_id="test-tenant",
             )
             self.assertEqual(result["exit_code"], 1)
-            self.assertEqual(result["stderr"], "patch: require --path")
+            self.assertEqual(
+                result["stderr"],
+                "patch: require --path. Example: patch --path /workspace/file.txt --find old --replace new",
+            )
 
     def test_patch_requires_complete_replace_args(self) -> None:
         with self.SessionLocal() as db:
@@ -479,7 +482,12 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 tenant_id="test-tenant",
             )
             self.assertEqual(result["exit_code"], 1)
-            self.assertEqual(result["stderr"], "patch: require either --unified or (--find and --replace)")
+            self.assertEqual(
+                result["stderr"],
+                "patch: require either --unified or (--find and --replace). "
+                "Examples: patch --path /workspace/file.txt --unified '@@ -1,1 +1,1 @@ ...' "
+                "or patch --path /workspace/file.txt --find old --replace new",
+            )
 
     def test_patch_fails_when_file_is_missing(self) -> None:
         with self.SessionLocal() as db:
@@ -492,7 +500,42 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 tenant_id="test-tenant",
             )
             self.assertEqual(result["exit_code"], 1)
-            self.assertEqual(result["stderr"], "patch: file not found: /workspace/files/missing.txt")
+            self.assertEqual(
+                result["stderr"],
+                "patch: /workspace/files/missing.txt: No such file. Try: find /workspace -name missing.txt or tree",
+            )
+
+    def test_cat_missing_file_suggests_next_step(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 321)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/brief.md",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 1)
+            self.assertEqual(
+                result["stderr"],
+                "cat: /workspace/brief.md: No such file. Try: find /workspace -name brief.md or tree",
+            )
+
+    def test_edit_requires_find_replace_shows_example(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 322)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "edit /workspace/files/demo.txt --find hello",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 1)
+            self.assertEqual(
+                result["stderr"],
+                "edit: require --find and --replace. Example: edit /workspace/file.txt --find old --replace new",
+            )
 
     def test_patch_fails_when_target_text_is_missing(self) -> None:
         with self.SessionLocal() as db:
@@ -624,6 +667,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["exit_code"], 0)
             self.assertIn("Supported commands:", result["stdout"])
             self.assertIn("- help", result["stdout"])
+            self.assertIn("- find [path] [-type f|d] [-name <glob>]", result["stdout"])
             self.assertIn(">| overwrites an existing file explicitly", result["stdout"])
             self.assertEqual(
                 result["artifacts"]["supported_commands"],
@@ -632,6 +676,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                     "cd",
                     "ls",
                     "cat",
+                    "find",
                     "rg",
                     "grep",
                     "wc",
@@ -644,6 +689,34 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                     "help",
                 ],
             )
+
+    def test_bash_result_includes_workspace_outline(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 319)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "pwd",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["workspace_outline"], "/\n└── workspace/\n    └── files/")
+            self.assertEqual(result["artifacts"]["workspace_outline"], "/\n└── workspace/\n    └── files/")
+
+    def test_find_locates_paths_by_filename(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 320)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "find /workspace -name demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["stdout"], "/workspace/files/demo.txt")
+            self.assertEqual(result["artifacts"]["match_count"], 1)
 
     def test_ls_long_format_shows_file_types(self) -> None:
         with self.SessionLocal() as db:

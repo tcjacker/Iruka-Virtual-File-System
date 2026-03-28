@@ -237,6 +237,7 @@ workspace.enter_agent_mode(db)
 - `cd`
 - `ls`
 - `cat`
+- `find`
 - `rg` / `grep`
 - `wc`
 - `mkdir`

@@ -235,6 +235,8 @@ with SessionLocal() as db:
 - `ls`
   `ls -l` / `ls -la` 会显示 `type`、`size`、`version`、`mtime`
 - `cat`
+- `find`
+  `find /workspace -name brief.md` 可在不知道具体目录时按文件名找路径
 - `rg`
 - `grep`
 - `wc -l`
@@ -254,8 +256,9 @@ with SessionLocal() as db:
 你当前处在虚拟 workspace 中，不是完整操作系统 shell。
 
 只能通过 workspace.bash(db, "...") 使用这些命令：
-pwd, cd, ls, cat, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
+pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
 需要查看类型/大小/版本号/修改时间时，使用 `ls -l`。
+不知道文件路径但知道文件名时，优先使用 `find /workspace -name 文件名`。
 
 写入规则：
 - 只能写 /workspace 下的路径
@@ -267,6 +270,8 @@ pwd, cd, ls, cat, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
 
 如果不确定支持什么，先执行：help
 ```
+
+另外，`workspace_handle.bash(...)` 的返回结果现在会默认包含 `workspace_outline` 字段，用于给 agent 暴露顶层目录骨架。
 
 ### 4.5 刷新到后端
 

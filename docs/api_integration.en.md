@@ -174,6 +174,8 @@ The virtual shell is intentionally small. Current supported commands are:
 - `ls`
   `ls -l` / `ls -la` show `type`, `size`, `version`, and `mtime`
 - `cat`
+- `find`
+  Use `find /workspace -name brief.md` when you know the filename but not the path
 - `rg`
 - `grep`
 - `wc -l`
@@ -193,8 +195,9 @@ Recommended agent bootstrap prompt:
 You are in a virtual workspace, not a full OS shell.
 
 Use workspace.bash(db, "...") with only these commands:
-pwd, cd, ls, cat, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
+pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, echo, help
 Use `ls -l` when you need type/size/version/mtime.
+When you know the filename but not the path, start with `find /workspace -name <name>`.
 
 Write rules:
 - stay under /workspace
@@ -206,6 +209,8 @@ Write rules:
 
 If you are unsure what is supported, run: help
 ```
+
+Each `workspace_handle.bash(...)` result now also includes `workspace_outline`, a shallow directory skeleton for agent-side path discovery.
 
 ### 4.5 Flush Runtime State
 

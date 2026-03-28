@@ -152,7 +152,7 @@ def exec_wc(db: Session, session, args: list[str], *, input_text: str) -> Virtua
     for target in files:
         node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, target)
         if not node or node.node_type != "file":
-            return VirtualCommandResult("", f"wc: {target}: No such file", 1, {})
+            return VirtualCommandResult("", service._format_missing_path_error("wc", target), 1, {})
         count = count_lines(service._get_node_content(db, node))
         total += count
         lines.append(f"{count} {service._node_path(db, node)}")

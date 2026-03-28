@@ -5,6 +5,9 @@ from iruka_vfs.runtime.fs_commands import count_lines, exec_mkdir, exec_touch, e
 from iruka_vfs.runtime.search import (
     collect_files,
     collect_files_for_search,
+    exec_find,
+    find_paths,
+    format_missing_path_error,
     safe_compile,
     search_display_path,
     search_nodes,
