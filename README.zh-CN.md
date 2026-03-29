@@ -119,7 +119,7 @@ configure_vfs_dependencies(
 
 对 host 路径来说，`workspace.ensure(db)` 也会顺带初始化 `workspace.flush()` 所需的 checkpoint 持久化前置条件。正常先执行一次 `ensure(db)` 后，宿主不需要再手工初始化 checkpoint worker 状态。
 
-虚拟 shell 现在还提供内置 `help` 命令。如果 agent 运行时忘记支持哪些能力，可以直接执行 `workspace.bash(db, "help")`，读取返回的 `stdout` 或 `artifacts["supported_commands"]`。每次 bash 返回里也会带上 `workspace_outline`、`workspace_bootstrap` 和 `discovery_hint`，用于辅助路径发现。
+虚拟 shell 现在还提供内置 `help` 命令。如果 agent 运行时忘记支持哪些能力，可以直接执行 `workspace.bash(db, "help")`，读取返回的 `stdout` 或 `artifacts["supported_commands"]`。每次 bash 返回里也会带上 `workspace_outline`、`workspace_bootstrap`、`unique_filename_index`、`path_shortcuts` 和 `discovery_hint` 用于路径发现；同时还会带上 `task_guidance`、`verification_hint`、`modified_paths` 用于长链路任务的收尾核对。解析失败时还会暴露结构化的 `artifacts["parse_error"]`。
 
 推荐给 agent 注入的最小 prompt：
 
@@ -142,6 +142,11 @@ pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, cp, mv, rm, sort, basenam
 - 多行写文件时可以使用：cat <<'EOF' > /workspace/file ... EOF
 - 可使用受限兼容语法：`2>/dev/null`、`|| true`、`|| :`、`|| help`
 - 不要生成真实 shell 扩展语法：通用 `||`、<、<<<、1>、通用 `2>`、&>、$(...)、`...`
+
+多文件任务结束前：
+- 看一下 `task_guidance["verification"]["pending_verification_paths"]`
+- 按 `suggested_readback` 再 `cat` 一次核对
+- 最终回答时优先复用 `modified_paths` 或 `task_guidance["verification"]["changed_paths"]`
 
 如果不确定支持什么，先执行：help
 ```

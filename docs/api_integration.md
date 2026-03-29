@@ -294,7 +294,43 @@ pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, xargs,
 如果不确定支持什么，先执行：help
 ```
 
-另外，`workspace_handle.bash(...)` 的返回结果现在会默认包含 `workspace_outline`、`workspace_bootstrap` 和 `discovery_hint` 字段，用于给 agent 暴露浅层目录结构、已知文件列表与推荐探索顺序。
+另外，`workspace_handle.bash(...)` 的返回结果现在会默认包含这些字段：
+
+- `workspace_outline`
+  当前 workspace 的浅层目录骨架。
+- `workspace_bootstrap`
+  一个有界的 bootstrap 预览，包含建议目标文件和唯一文件名提示。
+- `unique_filename_index`
+  一个有界的 `basename -> exact path` 映射，只保留唯一文件名。
+- `path_shortcuts`
+  可直接复用的精确路径捷径，例如 `brief.md: cat /workspace/docs/brief.md`。
+- `discovery_hint`
+  推荐的路径恢复顺序。
+- `task_guidance`
+  面向长链路任务的结构化提示，包含 changed paths、pending verification paths、verified paths、possible missing targets、suggested readback。
+- `verification_hint`
+  基于 `task_guidance` 生成的自然语言核对提示。
+- `modified_paths`
+  当前 session 里累计改动过的文件路径摘要，可直接复用于最终回答。
+
+如果命令在解析阶段失败，返回结果还会带上 `artifacts["parse_error"]`，格式类似：
+
+```json
+{
+  "kind": "unsupported_or_fallback",
+  "summary": "unsupported `|| false` fallback.",
+  "message": "parse error: unsupported `|| false` fallback. Supported forms are `|| true`, `|| :`, and `|| help`. Otherwise remove the `|| ...` tail and run the main command directly, or rewrite it as `;` / `&&` explicitly.",
+  "suggestion": "Supported forms are `|| true`, `|| :`, and `|| help`. Otherwise remove the `|| ...` tail and run the main command directly, or rewrite it as `;` / `&&` explicitly."
+}
+```
+
+对于多文件任务，推荐这样使用：
+
+- 先读目标文件
+- 再执行修改
+- 查看 `task_guidance["verification"]["pending_verification_paths"]`
+- 在结束前按 `suggested_readback` 再 `cat` 一次核对
+- 最终回答时优先复用 `modified_paths` 或 `task_guidance["verification"]["changed_paths"]`
 
 ### 4.5 刷新到后端
 

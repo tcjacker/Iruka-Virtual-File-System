@@ -233,7 +233,43 @@ Write rules:
 If you are unsure what is supported, run: help
 ```
 
-Each `workspace_handle.bash(...)` result now also includes `workspace_outline`, `workspace_bootstrap`, and `discovery_hint`, exposing a shallow directory skeleton, a small known-file bootstrap, and a recommended discovery flow for agent-side path recovery.
+Each `workspace_handle.bash(...)` result now also includes:
+
+- `workspace_outline`
+  A shallow directory skeleton for the current workspace.
+- `workspace_bootstrap`
+  A bounded bootstrap preview with suggested targets and unique filename hints.
+- `unique_filename_index`
+  A bounded `basename -> exact path` map for unique filenames.
+- `path_shortcuts`
+  Copyable exact-path helpers such as `brief.md: cat /workspace/docs/brief.md`.
+- `discovery_hint`
+  Recommended path-recovery flow.
+- `task_guidance`
+  Structured guidance for long-horizon tasks, including changed paths, pending verification paths, verified paths, possible missing targets, and a suggested readback command.
+- `verification_hint`
+  A short natural-language reminder derived from `task_guidance`.
+- `modified_paths`
+  The session-level changed-file summary used by the final answer.
+
+When parsing fails, the result also includes `artifacts["parse_error"]` with a structured object:
+
+```json
+{
+  "kind": "unsupported_or_fallback",
+  "summary": "unsupported `|| false` fallback.",
+  "message": "parse error: unsupported `|| false` fallback. Supported forms are `|| true`, `|| :`, and `|| help`. Otherwise remove the `|| ...` tail and run the main command directly, or rewrite it as `;` / `&&` explicitly.",
+  "suggestion": "Supported forms are `|| true`, `|| :`, and `|| help`. Otherwise remove the `|| ...` tail and run the main command directly, or rewrite it as `;` / `&&` explicitly."
+}
+```
+
+For multi-file tasks, prefer this workflow:
+
+- read target files first
+- make edits
+- inspect `task_guidance["verification"]["pending_verification_paths"]`
+- run the suggested `cat ...` readback before finishing
+- reuse `modified_paths` or `task_guidance["verification"]["changed_paths"]` in the final answer
 
 ### 4.5 Flush Runtime State
 

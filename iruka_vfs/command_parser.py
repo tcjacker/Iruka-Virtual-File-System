@@ -4,6 +4,15 @@ import re
 import shlex
 from typing import Any
 
+from iruka_vfs.parse_errors import (
+    ParseErrorDetail,
+    invalid_heredoc_error_detail,
+    make_parse_error,
+    shlex_parse_error_detail,
+    unsupported_or_error_detail,
+    validate_heredoc_command,
+)
+
 
 def split_chain(raw_cmd: str) -> list[dict[str, str]]:
     heredoc_cmd = _split_chain_with_heredoc(raw_cmd)
@@ -71,6 +80,11 @@ def split_chain(raw_cmd: str) -> list[dict[str, str]]:
 
 
 def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
+    parsed, detail = parse_pipeline_and_redirect_detailed(cmd)
+    return parsed, detail.render() if detail else None
+
+
+def parse_pipeline_and_redirect_detailed(cmd: str) -> tuple[dict[str, Any], ParseErrorDetail | None]:
     cmd, compat = _extract_compatible_shell_tails(cmd)
     cmd, here_string_text, here_string_error = _extract_here_string(cmd)
     if here_string_error:
@@ -86,7 +100,7 @@ def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
     try:
         tokens = list(shell_tokens(cmd))
     except ValueError as exc:
-        return {}, _format_shlex_parse_error(cmd, exc)
+        return {}, shlex_parse_error_detail(cmd, str(exc))
 
     if not tokens:
         return {"pipeline": [], "redirect": None}, None
@@ -106,21 +120,21 @@ def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
             continue
         if token == "|":
             if not current:
-                return {}, "parse error: empty command before pipe"
+                return {}, make_parse_error("empty_command_before_pipe", "empty command before pipe")
             pipeline.append(current)
             current = []
             idx += 1
             continue
         if token in {">", ">>", ">|"}:
             if idx + 1 >= len(tokens):
-                return {}, "parse error: redirect target is missing"
+                return {}, make_parse_error("missing_redirect_target", "redirect target is missing")
             redirect = {"op": token, "path": tokens[idx + 1], "force": token == ">|"}
             idx += 2
             if idx < len(tokens) and tokens[idx] == "--force":
                 redirect["force"] = True
                 idx += 1
             if idx < len(tokens):
-                return {}, "parse error: trailing tokens after redirect target"
+                return {}, make_parse_error("trailing_tokens_after_redirect", "trailing tokens after redirect target")
             break
         current.append(token)
         idx += 1
@@ -128,7 +142,7 @@ def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
     if current:
         pipeline.append(current)
     if not pipeline:
-        return {}, "parse error: empty command"
+        return {}, make_parse_error("empty_command", "empty command")
     return {
         "pipeline": pipeline,
         "redirect": redirect,
@@ -233,7 +247,7 @@ def _split_chain_with_heredoc(raw_cmd: str) -> list[dict[str, str]] | None:
     return pieces
 
 
-def _extract_heredoc(cmd: str) -> tuple[str, str, str | None]:
+def _extract_heredoc(cmd: str) -> tuple[str, str, ParseErrorDetail | None]:
     if "<<" not in cmd:
         return cmd, "", None
 
@@ -243,13 +257,13 @@ def _extract_heredoc(cmd: str) -> tuple[str, str, str | None]:
     header = lines[0].rstrip("\r\n")
     match = re.search(r"<<\s*(?:'([^']+)'|\"([^\"]+)\"|([^\s|;&>]+))", header)
     if not match:
-        return "", "", _format_invalid_heredoc_error(header)
+        return "", "", invalid_heredoc_error_detail(_first_command_name(header))
 
     delimiter = next(group for group in match.groups() if group is not None)
     header_without_heredoc = (header[: match.start()] + header[match.end() :]).strip()
-    heredoc_command_error = _validate_heredoc_command(header_without_heredoc)
+    heredoc_command_error = validate_heredoc_command(_first_command_name(header_without_heredoc))
     if heredoc_command_error:
-        return "", "", heredoc_command_error
+        return "", "", invalid_heredoc_error_detail(_first_command_name(header_without_heredoc))
     body_lines = lines[1:]
     collected: list[str] = []
     terminator_found = False
@@ -259,61 +273,13 @@ def _extract_heredoc(cmd: str) -> tuple[str, str, str | None]:
             break
         collected.append(line)
     if not terminator_found:
-        return "", "", f"parse error: heredoc terminator not found: {delimiter}"
+        return "", "", make_parse_error("missing_heredoc_terminator", f"heredoc terminator not found: {delimiter}")
     if "<<" in header_without_heredoc:
-        return "", "", "parse error: multiple heredocs are not supported"
+        return "", "", make_parse_error("multiple_heredocs", "multiple heredocs are not supported")
     return header_without_heredoc, "".join(collected), None
 
 
-def _format_invalid_heredoc_error(header: str) -> str:
-    stripped = header.strip()
-    try:
-        tokens = shlex.split(stripped, posix=True)
-    except ValueError:
-        tokens = stripped.split()
-    command = tokens[0] if tokens else ""
-    if command == "edit":
-        return (
-            "parse error: `edit` does not accept heredoc input. "
-            "Use `edit <file> --find <text> --replace <text>`, "
-            "`patch --path <file> --unified <diff>`, or `cat <<'EOF' >| <file>` for full rewrites."
-        )
-    if command == "patch":
-        return (
-            "parse error: `patch` heredoc input must be passed via `--unified`. "
-            "Use `patch --path <file> --unified '@@ ...'`, "
-            "`patch --path <file> --find <text> --replace <text>`, or `cat <<'EOF' >| <file>` for full rewrites."
-        )
-    return "parse error: invalid heredoc syntax"
-
-
-def _validate_heredoc_command(header_without_heredoc: str) -> str | None:
-    stripped = header_without_heredoc.strip()
-    if not stripped:
-        return None
-    try:
-        tokens = shlex.split(stripped, posix=True)
-    except ValueError:
-        tokens = stripped.split()
-    if not tokens:
-        return None
-    command = tokens[0]
-    if command == "edit":
-        return (
-            "parse error: `edit` does not accept heredoc input. "
-            "Use `edit <file> --find <text> --replace <text>`, "
-            "`patch --path <file> --unified <diff>`, or `cat <<'EOF' >| <file>` for full rewrites."
-        )
-    if command == "patch":
-        return (
-            "parse error: `patch` heredoc input must be passed via `--unified`. "
-            "Use `patch --path <file> --unified '@@ ...'`, "
-            "`patch --path <file> --find <text> --replace <text>`, or `cat <<'EOF' >| <file>` for full rewrites."
-        )
-    return None
-
-
-def _extract_here_string(cmd: str) -> tuple[str, str, str | None]:
+def _extract_here_string(cmd: str) -> tuple[str, str, ParseErrorDetail | None]:
     split_idx = _top_level_here_string_index(cmd)
     if split_idx is None:
         return cmd, "", None
@@ -321,27 +287,30 @@ def _extract_here_string(cmd: str) -> tuple[str, str, str | None]:
     primary = cmd[:split_idx].rstrip()
     raw_rhs = cmd[split_idx + 3 :].strip()
     if not primary:
-        return "", "", "parse error: here-string redirect <<< is missing a command before it"
+        return "", "", make_parse_error("missing_here_string_command", "here-string redirect <<< is missing a command before it")
     if not raw_rhs:
-        return "", "", "parse error: here-string redirect <<< is missing input text"
+        return "", "", make_parse_error("missing_here_string_input", "here-string redirect <<< is missing input text")
     if "$(" in raw_rhs or "`" in raw_rhs:
         return (
             "",
             "",
-            "parse error: here-string command substitution is not supported. "
-            "Use `cat <file> | <command>`, `echo <text> | <command>`, or `cat <<'EOF' | <command>` instead.",
+            make_parse_error(
+                "unsupported_here_string_substitution",
+                "here-string command substitution is not supported.",
+                suggestion="Use `cat <file> | <command>`, `echo <text> | <command>`, or `cat <<'EOF' | <command>` instead.",
+            ),
         )
 
     try:
         parts = list(shlex.split(raw_rhs, posix=True))
     except ValueError as exc:
-        return "", "", f"parse error: invalid here-string text: {exc}"
+        return "", "", make_parse_error("invalid_here_string_text", f"invalid here-string text: {exc}")
     if not parts:
-        return "", "", "parse error: here-string redirect <<< is missing input text"
+        return "", "", make_parse_error("missing_here_string_input", "here-string redirect <<< is missing input text")
     return primary, " ".join(parts) + "\n", None
 
 
-def _detect_unsupported_shell_syntax(cmd: str) -> str | None:
+def _detect_unsupported_shell_syntax(cmd: str) -> ParseErrorDetail | None:
     stripped = cmd.strip()
     if not stripped:
         return None
@@ -349,25 +318,26 @@ def _detect_unsupported_shell_syntax(cmd: str) -> str | None:
         fallback = _top_level_or_parts(stripped)
         if fallback is not None:
             _, fallback_text = fallback
-            return _format_unsupported_or_error(fallback_text)
-        return _format_unsupported_or_error("")
+            return unsupported_or_error_detail(fallback_text)
+        return unsupported_or_error_detail("")
     if "$(" in stripped or "`" in stripped:
-        return "parse error: command substitution is not supported; use plain commands only"
+        return make_parse_error("unsupported_command_substitution", "command substitution is not supported; use plain commands only")
     if "<<<" in stripped:
-        return (
-            "parse error: unsupported here-string redirect <<<. "
-            "Use `echo <text> | <command>`, `cat <file> | <command>`, or `cat <<'EOF' | <command>` instead."
+        return make_parse_error(
+            "unsupported_here_string_redirect",
+            "unsupported here-string redirect <<<.",
+            suggestion="Use `echo <text> | <command>`, `cat <file> | <command>`, or `cat <<'EOF' | <command>` instead.",
         )
     if "&>" in stripped:
-        return "parse error: &> redirect is not supported; only >, >>, >|, and 2>&1 are supported"
+        return make_parse_error("&>_not_supported", "&> redirect is not supported; only >, >>, >|, and 2>&1 are supported")
     if re.search(r"(^|[^0-9])(?:1>|2>)", stripped):
-        return (
-            "parse error: general 1>/2> redirects are not supported. "
-            "Use `2>/dev/null` to discard stderr, `2>&1` to merge stderr into stdout, "
-            "or remove the stderr redirect tail and run the main command directly."
+        return make_parse_error(
+            "unsupported_general_stderr_redirect",
+            "general 1>/2> redirects are not supported.",
+            suggestion="Use `2>/dev/null` to discard stderr, `2>&1` to merge stderr into stdout, or remove the stderr redirect tail and run the main command directly.",
         )
     if _contains_plain_input_redirect(stripped):
-        return "parse error: input redirect < is not supported"
+        return make_parse_error("unsupported_input_redirect", "input redirect < is not supported")
     return None
 
 
@@ -388,19 +358,6 @@ def _contains_plain_input_redirect(cmd: str) -> bool:
             continue
         return True
     return False
-
-
-def _format_shlex_parse_error(cmd: str, exc: ValueError) -> str:
-    message = str(exc)
-    if message == "No escaped character":
-        if "-exec" in cmd or "\\;" in cmd or "\\(" in cmd or "\\)" in cmd:
-            return (
-                "parse error: shell-escaped find syntax is not supported in that form. "
-                "Use a limited form like `find /workspace -type f -exec grep -l TODO {} \\;`, "
-                "`find ... | xargs grep -l TODO`, or `grep -l TODO /workspace`."
-            )
-        return "parse error: stray backslash escape; use plain commands only"
-    return f"parse error: {message}"
 
 
 def _extract_compatible_shell_tails(cmd: str) -> tuple[str, dict[str, bool]]:
@@ -490,19 +447,12 @@ def _top_level_here_string_index(cmd: str) -> int | None:
             return idx
         idx += 1
     return None
-
-
-def _format_unsupported_or_error(fallback_text: str) -> str:
-    if fallback_text:
-        return (
-            f"parse error: unsupported `|| {fallback_text}` fallback. "
-            "Supported forms are `|| true`, `|| :`, and `|| help`. "
-            "Otherwise remove the `|| ...` tail and run the main command directly, "
-            "or rewrite it as `;` / `&&` explicitly."
-        )
-    return (
-        "parse error: unsupported || fallback. "
-        "Supported forms are `|| true`, `|| :`, and `|| help`. "
-        "Otherwise remove the `|| ...` tail and run the main command directly, "
-        "or rewrite it as `;` / `&&` explicitly."
-    )
+def _first_command_name(raw: str) -> str:
+    stripped = raw.strip()
+    if not stripped:
+        return ""
+    try:
+        tokens = shlex.split(stripped, posix=True)
+    except ValueError:
+        tokens = stripped.split()
+    return tokens[0] if tokens else ""

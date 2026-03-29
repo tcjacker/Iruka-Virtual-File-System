@@ -852,6 +852,328 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertIn("Prefer exact known paths, path_shortcuts, or unique_filename_index entries", result["discovery_hint"])
             self.assertEqual(result["discovery_hint"], result["artifacts"]["discovery_hint"])
 
+    def test_task_guidance_tracks_outstanding_multi_file_verification(self) -> None:
+        workspace = VFSWorkspace(
+            id=3191,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-3191",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-3191",
+            tenant_id="test-tenant",
+            workspace_files={
+                "/workspace/docs/a.md": "alpha\n",
+                "/workspace/docs/b.md": "beta\n",
+            },
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "edit /workspace/docs/a.md --find alpha --replace ALPHA && edit /workspace/docs/b.md --find beta --replace BETA",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(
+                result["modified_paths"],
+                ["/workspace/docs/a.md", "/workspace/docs/b.md"],
+            )
+            self.assertEqual(
+                result["task_guidance"]["verification"]["required_paths"],
+                ["/workspace/docs/a.md", "/workspace/docs/b.md"],
+            )
+            self.assertEqual(
+                result["task_guidance"]["verification"]["pending_verification_paths"],
+                ["/workspace/docs/a.md", "/workspace/docs/b.md"],
+            )
+            self.assertEqual(
+                result["task_guidance"]["verification"]["changed_paths"],
+                ["/workspace/docs/a.md", "/workspace/docs/b.md"],
+            )
+            self.assertEqual(
+                result["task_guidance"]["verification"]["suggested_readback"],
+                "cat /workspace/docs/a.md /workspace/docs/b.md",
+            )
+            self.assertIn("Before finishing, verify every changed file", result["verification_hint"])
+            self.assertEqual(result["task_guidance"], result["artifacts"]["task_guidance"])
+            self.assertEqual(result["verification_hint"], result["artifacts"]["verification_hint"])
+
+    def test_task_guidance_persists_until_files_are_read_back(self) -> None:
+        workspace = VFSWorkspace(
+            id=3192,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-3192",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-3192",
+            tenant_id="test-tenant",
+            workspace_files={
+                "/workspace/docs/a.md": "alpha\n",
+                "/workspace/docs/b.md": "beta\n",
+            },
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            first = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "edit /workspace/docs/a.md --find alpha --replace ALPHA",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(first["task_guidance"]["verification"]["required_paths"], ["/workspace/docs/a.md"])
+
+            second = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "patch --path /workspace/docs/b.md --find beta --replace BETA",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(
+                second["task_guidance"]["verification"]["required_paths"],
+                ["/workspace/docs/a.md", "/workspace/docs/b.md"],
+            )
+
+            third = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/docs/a.md /workspace/docs/b.md",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(third["exit_code"], 0)
+            self.assertEqual(third["task_guidance"]["verification"]["required_paths"], [])
+            self.assertEqual(
+                third["task_guidance"]["verification"]["verified_paths"],
+                ["/workspace/docs/a.md", "/workspace/docs/b.md"],
+            )
+            self.assertIn("/workspace/docs/a.md, /workspace/docs/b.md", third["verification_hint"])
+
+    def test_task_guidance_surfaces_possible_missing_targets(self) -> None:
+        workspace = VFSWorkspace(
+            id=3193,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-3193",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-3193",
+            tenant_id="test-tenant",
+            workspace_files={
+                "/workspace/docs/a.md": "alpha\n",
+                "/workspace/docs/b.md": "beta\n",
+            },
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/docs/a.md /workspace/docs/b.md && edit /workspace/docs/a.md --find alpha --replace ALPHA",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(
+                result["task_guidance"]["verification"]["possible_missing_targets"],
+                ["/workspace/docs/b.md"],
+            )
+            self.assertIn("untouched targets: /workspace/docs/b.md", result["verification_hint"])
+
+    def test_task_guidance_persists_across_non_verifying_followup_steps(self) -> None:
+        workspace = VFSWorkspace(
+            id=3194,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-3194",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-3194",
+            tenant_id="test-tenant",
+            workspace_files={
+                "/workspace/docs/a.md": "alpha\n",
+                "/workspace/docs/b.md": "beta\n",
+            },
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            first = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "edit /workspace/docs/a.md --find alpha --replace ALPHA && edit /workspace/docs/b.md --find beta --replace BETA",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(
+                first["task_guidance"]["verification"]["pending_verification_paths"],
+                ["/workspace/docs/a.md", "/workspace/docs/b.md"],
+            )
+
+            second = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "pwd",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(second["exit_code"], 0)
+            self.assertEqual(
+                second["task_guidance"]["verification"]["pending_verification_paths"],
+                ["/workspace/docs/a.md", "/workspace/docs/b.md"],
+            )
+            self.assertIn("cat /workspace/docs/a.md /workspace/docs/b.md", second["verification_hint"])
+
+    def test_task_guidance_clears_only_the_subset_that_was_read_back(self) -> None:
+        workspace = VFSWorkspace(
+            id=3195,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-3195",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-3195",
+            tenant_id="test-tenant",
+            workspace_files={
+                "/workspace/docs/a.md": "alpha\n",
+                "/workspace/docs/b.md": "beta\n",
+            },
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "edit /workspace/docs/a.md --find alpha --replace ALPHA && edit /workspace/docs/b.md --find beta --replace BETA",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/docs/a.md",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(
+                result["task_guidance"]["verification"]["verified_paths"],
+                ["/workspace/docs/a.md"],
+            )
+            self.assertEqual(
+                result["task_guidance"]["verification"]["pending_verification_paths"],
+                ["/workspace/docs/b.md"],
+            )
+            self.assertEqual(
+                result["task_guidance"]["verification"]["recently_verified_paths"],
+                ["/workspace/docs/a.md"],
+            )
+            self.assertEqual(
+                result["task_guidance"]["verification"]["suggested_readback"],
+                "cat /workspace/docs/b.md",
+            )
+
+    def test_parse_error_followup_does_not_clear_long_horizon_guidance(self) -> None:
+        workspace = VFSWorkspace(
+            id=3196,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-3196",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-3196",
+            tenant_id="test-tenant",
+            workspace_files={
+                "/workspace/docs/a.md": "alpha\n",
+                "/workspace/docs/b.md": "beta\n",
+            },
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/docs/a.md /workspace/docs/b.md && edit /workspace/docs/a.md --find alpha --replace ALPHA",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "echo hello >",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 2)
+            self.assertEqual(result["artifacts"]["parse_error"]["kind"], "missing_redirect_target")
+            self.assertEqual(
+                result["task_guidance"]["verification"]["pending_verification_paths"],
+                ["/workspace/docs/a.md"],
+            )
+            self.assertEqual(
+                result["task_guidance"]["verification"]["possible_missing_targets"],
+                ["/workspace/docs/b.md"],
+            )
+            self.assertIn("untouched targets: /workspace/docs/b.md", result["verification_hint"])
+
     def test_find_locates_paths_by_filename(self) -> None:
         with self.SessionLocal() as db:
             workspace, runtime_seed = self._prepare_agent_workspace(db, 320)
@@ -1449,6 +1771,8 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 "Supported forms are `|| true`, `|| :`, and `|| help`. "
                 "Otherwise remove the `|| ...` tail and run the main command directly, or rewrite it as `;` / `&&` explicitly.",
             )
+            self.assertEqual(result["artifacts"]["parse_error"]["kind"], "unsupported_or_fallback")
+            self.assertIn("Supported forms are `|| true`, `|| :`, and `|| help`", result["artifacts"]["parse_error"]["suggestion"])
 
     def test_redirect_fails_when_target_is_directory(self) -> None:
         with self.SessionLocal() as db:

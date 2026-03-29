@@ -2,59 +2,12 @@ from __future__ import annotations
 
 import fnmatch
 import re
-import shlex
 
 from sqlalchemy.orm import Session
 
-from iruka_vfs.constants import REGEX_META_CHARS, VFS_ROOT
+from iruka_vfs.constants import REGEX_META_CHARS
+from iruka_vfs.integrations.agent.path_guidance import format_missing_path_error
 from iruka_vfs.models import VirtualCommandResult
-
-
-def _search_hint(target: str, *, command: str | None = None, db: Session | None = None, session=None, directory_style: bool = False) -> str:
-    basename = str(target or "").rstrip("/").split("/")[-1]
-    suggested_path = _find_unique_named_path(db, session, basename, raw_target=target)
-    if suggested_path:
-        if command in {"cat", "edit", "patch", "wc", "head", "rm"} and not directory_style:
-            return (
-                f" Most likely existing path: {suggested_path}. "
-                f"Exact retry: {command} {shlex.quote(suggested_path)}. "
-                f"Do not recreate /workspace/{basename} when that exact file already exists elsewhere."
-            )
-        return (
-            f" Most likely existing path: {suggested_path}. "
-            f"Exact retry: find /workspace -name {shlex.quote(basename)}. "
-            f"If workspace_bootstrap or unique_filename_index lists that basename once, reuse the exact path above."
-        )
-    if basename and basename not in {".", ".."}:
-        return (
-            f" Try: find /workspace -name {shlex.quote(basename)} -> cat -> edit/patch. "
-            f"If workspace_bootstrap shows a unique filename hint, use that exact path directly."
-        )
-    return " Try: ls -la /workspace, find /workspace -type f, or inspect workspace_bootstrap"
-
-
-def _find_unique_named_path(db: Session | None, session, basename: str, *, raw_target: str) -> str | None:
-    from iruka_vfs import service
-
-    if db is None or session is None or not basename or basename in {".", ".."}:
-        return None
-    workspace_root = service._resolve_path(db, session.workspace_id, session.cwd_node_id, VFS_ROOT)
-    if workspace_root is None:
-        return None
-    normalized_target = service._normalize_virtual_path(db, session, raw_target) or raw_target
-    same_name_paths = [
-        path
-        for path in find_paths(db, session.workspace_id, workspace_root, name_pattern=basename)
-        if path != normalized_target
-    ]
-    if len(same_name_paths) != 1:
-        return None
-    return same_name_paths[0]
-
-
-def format_missing_path_error(command: str, target: str, *, directory_style: bool = False, db: Session | None = None, session=None) -> str:
-    suffix = "No such file or directory" if directory_style else "No such file"
-    return f"{command}: {target}: {suffix}.{_search_hint(target, command=command, db=db, session=session, directory_style=directory_style)}"
 
 
 def safe_compile(pattern: str) -> re.Pattern[str] | None:

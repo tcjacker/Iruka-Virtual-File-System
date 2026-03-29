@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from iruka_vfs.command_parser import parse_pipeline_and_redirect, split_chain
+from iruka_vfs.command_parser import parse_pipeline_and_redirect_detailed, split_chain
 from iruka_vfs.models import VirtualCommandResult
 
 
@@ -97,9 +97,9 @@ def run_command_chain(db: Session, session, raw_cmd: str) -> VirtualCommandResul
 def run_single_command(db: Session, session, cmd: str) -> VirtualCommandResult:
     from iruka_vfs import service
 
-    parsed, parse_error = parse_pipeline_and_redirect(cmd)
+    parsed, parse_error = parse_pipeline_and_redirect_detailed(cmd)
     if parse_error:
-        return VirtualCommandResult("", parse_error, 2, {})
+        return VirtualCommandResult("", parse_error.render(), 2, {"parse_error": parse_error.as_artifact()})
 
     pipeline = parsed.get("pipeline") or []
     redirect = parsed.get("redirect")

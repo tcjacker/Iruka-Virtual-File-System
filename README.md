@@ -116,7 +116,7 @@ The recommended way to integrate with an agent runtime is:
 
 For host-side durability, `workspace.ensure(db)` also initializes the checkpoint persistence precondition used by `workspace.flush()`. After a normal `ensure(db)`, the host path does not need to initialize checkpoint worker state manually.
 
-The virtual shell also provides a built-in `help` command. If the agent needs to re-check the supported surface at runtime, call `workspace.bash(db, "help")` and read `stdout` or `artifacts["supported_commands"]`. Each bash result also includes `workspace_outline`, `workspace_bootstrap`, and `discovery_hint` for agent-side path discovery.
+The virtual shell also provides a built-in `help` command. If the agent needs to re-check the supported surface at runtime, call `workspace.bash(db, "help")` and read `stdout` or `artifacts["supported_commands"]`. Each bash result also includes `workspace_outline`, `workspace_bootstrap`, `unique_filename_index`, `path_shortcuts`, and `discovery_hint` for path discovery, plus `task_guidance`, `verification_hint`, and `modified_paths` for long-horizon verification before the final answer. Parse failures also expose a structured `artifacts["parse_error"]` object.
 
 Recommended minimal agent prompt:
 
@@ -139,6 +139,11 @@ Write rules:
 - for multi-line file creation, you may use: cat <<'EOF' > /workspace/file ... EOF
 - limited shell compatibility is available for `2>/dev/null` and restricted fallbacks `|| true`, `|| :`, `|| help`
 - do not generate real-shell extras such as: general `||`, <, <<<, 1>, general 2>, &>, $(...), `...`
+
+Before finishing a multi-file task:
+- inspect `task_guidance["verification"]["pending_verification_paths"]`
+- run the suggested `cat ...` readback
+- reuse `modified_paths` or `task_guidance["verification"]["changed_paths"]` in the final answer
 
 If you are unsure what is supported, run: help
 ```
