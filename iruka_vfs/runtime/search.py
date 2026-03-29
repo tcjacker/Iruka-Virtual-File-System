@@ -14,19 +14,23 @@ def _search_hint(target: str, *, command: str | None = None, db: Session | None 
     basename = str(target or "").rstrip("/").split("/")[-1]
     suggested_path = _find_unique_named_path(db, session, basename, raw_target=target)
     if suggested_path:
-        if command in {"cat", "edit", "patch", "wc"} and not directory_style:
+        if command in {"cat", "edit", "patch", "wc", "head", "rm"} and not directory_style:
             return (
                 f" Most likely existing path: {suggested_path}. "
-                f"Try: {command} {shlex.quote(suggested_path)}. "
+                f"Exact retry: {command} {shlex.quote(suggested_path)}. "
                 f"Do not recreate /workspace/{basename} when that exact file already exists elsewhere."
             )
         return (
             f" Most likely existing path: {suggested_path}. "
-            f"Try: find /workspace -name {shlex.quote(basename)} or use the exact path above."
+            f"Exact retry: find /workspace -name {shlex.quote(basename)}. "
+            f"If workspace_bootstrap or unique_filename_index lists that basename once, reuse the exact path above."
         )
     if basename and basename not in {".", ".."}:
-        return f" Try: find /workspace -name {shlex.quote(basename)} -> cat -> edit/patch, or inspect tree"
-    return " Try: ls -la /workspace, find /workspace -type f, or tree"
+        return (
+            f" Try: find /workspace -name {shlex.quote(basename)} -> cat -> edit/patch. "
+            f"If workspace_bootstrap shows a unique filename hint, use that exact path directly."
+        )
+    return " Try: ls -la /workspace, find /workspace -type f, or inspect workspace_bootstrap"
 
 
 def _find_unique_named_path(db: Session | None, session, basename: str, *, raw_target: str) -> str | None:

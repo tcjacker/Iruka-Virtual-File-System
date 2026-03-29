@@ -504,7 +504,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["exit_code"], 1)
             self.assertEqual(
                 result["stderr"],
-                "patch: /workspace/files/missing.txt: No such file. Try: find /workspace -name missing.txt -> cat -> edit/patch, or inspect tree",
+                "patch: /workspace/files/missing.txt: No such file. Try: find /workspace -name missing.txt -> cat -> edit/patch. If workspace_bootstrap shows a unique filename hint, use that exact path directly.",
             )
 
     def test_cat_missing_file_suggests_next_step(self) -> None:
@@ -520,7 +520,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["exit_code"], 1)
             self.assertEqual(
                 result["stderr"],
-                "cat: /workspace/brief.md: No such file. Try: find /workspace -name brief.md -> cat -> edit/patch, or inspect tree",
+                "cat: /workspace/brief.md: No such file. Try: find /workspace -name brief.md -> cat -> edit/patch. If workspace_bootstrap shows a unique filename hint, use that exact path directly.",
             )
 
     def test_cat_missing_file_suggests_unique_existing_path(self) -> None:
@@ -558,7 +558,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 result["stderr"],
                 "cat: /workspace/brief.md: No such file. "
                 "Most likely existing path: /workspace/docs/brief.md. "
-                "Try: cat /workspace/docs/brief.md. "
+                "Exact retry: cat /workspace/docs/brief.md. "
                 "Do not recreate /workspace/brief.md when that exact file already exists elsewhere.",
             )
 
@@ -841,11 +841,13 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["exit_code"], 0)
             self.assertEqual(result["workspace_outline"], "/\n└── workspace/\n    └── files/\n        └── demo.txt")
             self.assertEqual(result["artifacts"]["workspace_outline"], "/\n└── workspace/\n    └── files/\n        └── demo.txt")
-            self.assertIn("Known files:\n- /workspace/files/demo.txt", result["workspace_bootstrap"])
+            self.assertIn("Suggested targets:\n- /workspace/files/demo.txt", result["workspace_bootstrap"])
             self.assertIn("Unique filename hints:\n- demo.txt -> /workspace/files/demo.txt", result["workspace_bootstrap"])
             self.assertEqual(result["workspace_bootstrap"], result["artifacts"]["workspace_bootstrap"])
+            self.assertEqual(result["unique_filename_index"]["demo.txt"], "/workspace/files/demo.txt")
+            self.assertEqual(result["unique_filename_index"], result["artifacts"]["unique_filename_index"])
             self.assertIn("find /workspace -name <file>", result["discovery_hint"])
-            self.assertIn("Prefer exact known paths or filename hints from workspace_bootstrap", result["discovery_hint"])
+            self.assertIn("Prefer exact known paths or unique_filename_index entries", result["discovery_hint"])
             self.assertEqual(result["discovery_hint"], result["artifacts"]["discovery_hint"])
 
     def test_find_locates_paths_by_filename(self) -> None:
@@ -1391,7 +1393,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["exit_code"], 0)
             self.assertEqual(
                 result["stderr"],
-                "cat: /workspace/files/missing.txt: No such file. Try: find /workspace -name missing.txt -> cat -> edit/patch, or inspect tree",
+                "cat: /workspace/files/missing.txt: No such file. Try: find /workspace -name missing.txt -> cat -> edit/patch. If workspace_bootstrap shows a unique filename hint, use that exact path directly.",
             )
             self.assertEqual(result["artifacts"]["or_fallback"], [":"])
 

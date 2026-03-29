@@ -42,9 +42,10 @@ Supported commands:
 Discovery tips:
 - When the target path is unknown, use: find /workspace -name <file> -> cat -> edit/patch
 - Use find /workspace -name brief.md when you know the filename but not the path
+- Reuse exact paths from workspace_bootstrap or unique_filename_index before guessing /workspace/<file>
 - find also supports a limited -exec form, for example: find /workspace -type f -exec grep -l TODO {} \\;
 - Use tree when you need the top-level directory layout
-- Each bash result also includes workspace_outline with the top-level directory skeleton and first file layer
+- Each bash result also includes workspace_outline, workspace_bootstrap, and unique_filename_index for path discovery
 - Limited shell-compat tails are supported: 2>/dev/null and restricted || fallbacks (true, :, help)
 
 Write rules:
