@@ -87,6 +87,26 @@ class CommandParserTest(unittest.TestCase):
             "Use `cat <file> | <command>`, `echo <text> | <command>`, or `cat <<'EOF' | <command>` instead.",
         )
 
+    def test_invalid_edit_heredoc_syntax_is_actionable(self) -> None:
+        parsed, error = parse_pipeline_and_redirect("edit /workspace/file.txt <<EOF\nhello\nEOF")
+        self.assertEqual(parsed, {})
+        self.assertEqual(
+            error,
+            "parse error: `edit` does not accept heredoc input. "
+            "Use `edit <file> --find <text> --replace <text>`, "
+            "`patch --path <file> --unified <diff>`, or `cat <<'EOF' >| <file>` for full rewrites.",
+        )
+
+    def test_invalid_patch_heredoc_syntax_is_actionable(self) -> None:
+        parsed, error = parse_pipeline_and_redirect("patch /workspace/file.txt <<EOF\n@@\nEOF")
+        self.assertEqual(parsed, {})
+        self.assertEqual(
+            error,
+            "parse error: `patch` heredoc input must be passed via `--unified`. "
+            "Use `patch --path <file> --unified '@@ ...'`, "
+            "`patch --path <file> --find <text> --replace <text>`, or `cat <<'EOF' >| <file>` for full rewrites.",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

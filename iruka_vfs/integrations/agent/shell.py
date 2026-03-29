@@ -102,9 +102,10 @@ def run_virtual_bash(
             workspace,
             workspace_outline=workspace_outline,
         )
+        path_shortcuts = _build_path_shortcuts(unique_filename_index)
         discovery_hint = (
             "If a path is unknown, start with find /workspace -name <file>, then cat, then edit/patch. "
-            "Prefer exact known paths or unique_filename_index entries instead of guessing /workspace/<name>. "
+            "Prefer exact known paths, path_shortcuts, or unique_filename_index entries instead of guessing /workspace/<name>. "
             "If a basename appears exactly once, reuse that exact path directly before trying a guessed root-level path. "
             "Use >| when overwriting an existing file. Limited shell tails 2>/dev/null, || true, || :, and || help are supported."
         )
@@ -114,6 +115,7 @@ def run_virtual_bash(
         result_artifacts["workspace_outline"] = workspace_outline
         result_artifacts["workspace_bootstrap"] = workspace_bootstrap
         result_artifacts["unique_filename_index"] = unique_filename_index
+        result_artifacts["path_shortcuts"] = path_shortcuts
         result_artifacts["discovery_hint"] = discovery_hint
         log_artifacts = prepare_log_artifacts(
             result_artifacts,
@@ -159,6 +161,7 @@ def run_virtual_bash(
         "workspace_outline": workspace_outline,
         "workspace_bootstrap": workspace_bootstrap,
         "unique_filename_index": unique_filename_index,
+        "path_shortcuts": path_shortcuts,
         "discovery_hint": discovery_hint,
     }
 
@@ -288,6 +291,13 @@ def _sample_bootstrap_file_paths(service, db: Session, workspace_id: int, root_i
                 queue.append((int(child.id), depth + 1))
 
     return collected_files
+
+
+def _build_path_shortcuts(unique_filename_index: dict[str, str]) -> list[str]:
+    shortcuts: list[str] = []
+    for name, path in list(unique_filename_index.items())[:BOOTSTRAP_MAX_UNIQUE_HINTS]:
+        shortcuts.append(f"{name}: cat {path}")
+    return shortcuts
 
 
 def _rank_bootstrap_paths(paths: list[str]) -> list[str]:

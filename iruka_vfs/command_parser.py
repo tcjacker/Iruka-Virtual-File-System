@@ -243,10 +243,13 @@ def _extract_heredoc(cmd: str) -> tuple[str, str, str | None]:
     header = lines[0].rstrip("\r\n")
     match = re.search(r"<<\s*(?:'([^']+)'|\"([^\"]+)\"|([^\s|;&>]+))", header)
     if not match:
-        return "", "", "parse error: invalid heredoc syntax"
+        return "", "", _format_invalid_heredoc_error(header)
 
     delimiter = next(group for group in match.groups() if group is not None)
     header_without_heredoc = (header[: match.start()] + header[match.end() :]).strip()
+    heredoc_command_error = _validate_heredoc_command(header_without_heredoc)
+    if heredoc_command_error:
+        return "", "", heredoc_command_error
     body_lines = lines[1:]
     collected: list[str] = []
     terminator_found = False
@@ -260,6 +263,54 @@ def _extract_heredoc(cmd: str) -> tuple[str, str, str | None]:
     if "<<" in header_without_heredoc:
         return "", "", "parse error: multiple heredocs are not supported"
     return header_without_heredoc, "".join(collected), None
+
+
+def _format_invalid_heredoc_error(header: str) -> str:
+    stripped = header.strip()
+    try:
+        tokens = shlex.split(stripped, posix=True)
+    except ValueError:
+        tokens = stripped.split()
+    command = tokens[0] if tokens else ""
+    if command == "edit":
+        return (
+            "parse error: `edit` does not accept heredoc input. "
+            "Use `edit <file> --find <text> --replace <text>`, "
+            "`patch --path <file> --unified <diff>`, or `cat <<'EOF' >| <file>` for full rewrites."
+        )
+    if command == "patch":
+        return (
+            "parse error: `patch` heredoc input must be passed via `--unified`. "
+            "Use `patch --path <file> --unified '@@ ...'`, "
+            "`patch --path <file> --find <text> --replace <text>`, or `cat <<'EOF' >| <file>` for full rewrites."
+        )
+    return "parse error: invalid heredoc syntax"
+
+
+def _validate_heredoc_command(header_without_heredoc: str) -> str | None:
+    stripped = header_without_heredoc.strip()
+    if not stripped:
+        return None
+    try:
+        tokens = shlex.split(stripped, posix=True)
+    except ValueError:
+        tokens = stripped.split()
+    if not tokens:
+        return None
+    command = tokens[0]
+    if command == "edit":
+        return (
+            "parse error: `edit` does not accept heredoc input. "
+            "Use `edit <file> --find <text> --replace <text>`, "
+            "`patch --path <file> --unified <diff>`, or `cat <<'EOF' >| <file>` for full rewrites."
+        )
+    if command == "patch":
+        return (
+            "parse error: `patch` heredoc input must be passed via `--unified`. "
+            "Use `patch --path <file> --unified '@@ ...'`, "
+            "`patch --path <file> --find <text> --replace <text>`, or `cat <<'EOF' >| <file>` for full rewrites."
+        )
+    return None
 
 
 def _extract_here_string(cmd: str) -> tuple[str, str, str | None]:

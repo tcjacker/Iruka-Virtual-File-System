@@ -846,8 +846,10 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["workspace_bootstrap"], result["artifacts"]["workspace_bootstrap"])
             self.assertEqual(result["unique_filename_index"]["demo.txt"], "/workspace/files/demo.txt")
             self.assertEqual(result["unique_filename_index"], result["artifacts"]["unique_filename_index"])
+            self.assertEqual(result["path_shortcuts"], ["demo.txt: cat /workspace/files/demo.txt"])
+            self.assertEqual(result["path_shortcuts"], result["artifacts"]["path_shortcuts"])
             self.assertIn("find /workspace -name <file>", result["discovery_hint"])
-            self.assertIn("Prefer exact known paths or unique_filename_index entries", result["discovery_hint"])
+            self.assertIn("Prefer exact known paths, path_shortcuts, or unique_filename_index entries", result["discovery_hint"])
             self.assertEqual(result["discovery_hint"], result["artifacts"]["discovery_hint"])
 
     def test_find_locates_paths_by_filename(self) -> None:
@@ -1365,6 +1367,24 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 result["stderr"],
                 "parse error: here-string command substitution is not supported. "
                 "Use `cat <file> | <command>`, `echo <text> | <command>`, or `cat <<'EOF' | <command>` instead.",
+            )
+
+    def test_edit_heredoc_reports_actionable_error(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 31013)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "edit /workspace/files/demo.txt <<EOF\nhello\nEOF",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 2)
+            self.assertEqual(
+                result["stderr"],
+                "parse error: `edit` does not accept heredoc input. "
+                "Use `edit <file> --find <text> --replace <text>`, "
+                "`patch --path <file> --unified <diff>`, or `cat <<'EOF' >| <file>` for full rewrites.",
             )
 
     def test_stderr_devnull_suppresses_error_output(self) -> None:
