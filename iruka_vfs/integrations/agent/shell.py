@@ -90,7 +90,8 @@ def run_virtual_bash(
         workspace_bootstrap = _build_workspace_bootstrap(service, db, workspace)
         discovery_hint = (
             "If a path is unknown, start with find /workspace -name <file>, then cat, then edit/patch. "
-            "Prefer exact known paths from workspace_bootstrap instead of guessing /workspace/<name>. "
+            "Prefer exact known paths or filename hints from workspace_bootstrap instead of guessing /workspace/<name>. "
+            "If a basename appears exactly once, reuse that exact path directly. "
             "Use >| when overwriting an existing file. Limited shell tails 2>/dev/null, || true, || :, and || help are supported."
         )
         log_stdout, stdout_meta = truncate_for_log(result.stdout, VFS_COMMAND_LOG_MAX_STDOUT_CHARS)
@@ -209,6 +210,10 @@ def _execute_virtual_bash_transaction(service, db: Session, workspace: Any, tena
 def _build_workspace_bootstrap(service, db: Session, workspace: Any) -> str:
     workspace_root = service._get_or_create_root(db, int(workspace.id))
     file_paths = service._find_paths(db, int(workspace.id), workspace_root, node_type="file")[:20]
+    basename_map: dict[str, list[str]] = {}
+    for path in file_paths:
+        basename = path.rstrip("/").split("/")[-1]
+        basename_map.setdefault(basename, []).append(path)
     lines = [
         "Workspace bootstrap:",
         service.render_virtual_tree(db, int(workspace.id), max_depth=5),
@@ -216,8 +221,13 @@ def _build_workspace_bootstrap(service, db: Session, workspace: Any) -> str:
     if file_paths:
         lines.append("Known files:")
         lines.extend(f"- {path}" for path in file_paths)
+        unique_name_paths = [(name, paths[0]) for name, paths in sorted(basename_map.items()) if len(paths) == 1]
+        if unique_name_paths:
+            lines.append("Unique filename hints:")
+            lines.extend(f"- {name} -> {path}" for name, path in unique_name_paths[:12])
     lines.append("Path workflow:")
     lines.append("- Reuse an exact known path above when it matches the filename you need.")
+    lines.append("- If a filename hint is unique, use that exact path directly instead of guessing a root-level path.")
     lines.append("- Otherwise use: find /workspace -name <file>")
     lines.append("- Then read with cat before edit/patch or >| overwrite.")
     return "\n".join(lines)

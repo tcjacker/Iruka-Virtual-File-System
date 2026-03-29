@@ -46,7 +46,7 @@ class CommandParserTest(unittest.TestCase):
             error,
             "parse error: unsupported `|| cat b.txt` fallback. "
             "Supported forms are `|| true`, `|| :`, and `|| help`. "
-            "Otherwise remove the `|| ...` tail and run the main command directly, or use && / ; explicitly.",
+            "Otherwise remove the `|| ...` tail and run the main command directly, or rewrite it as `;` / `&&` explicitly.",
         )
 
     def test_rejects_input_redirect_with_explicit_error(self) -> None:
@@ -59,7 +59,9 @@ class CommandParserTest(unittest.TestCase):
         self.assertEqual(parsed, {})
         self.assertEqual(
             error,
-            "parse error: 1>/2> redirects are not supported; only >, >>, >|, and 2>&1 are supported",
+            "parse error: general 1>/2> redirects are not supported. "
+            "Use `2>/dev/null` to discard stderr, `2>&1` to merge stderr into stdout, "
+            "or remove the stderr redirect tail and run the main command directly.",
         )
 
     def test_rejects_command_substitution_with_explicit_error(self) -> None:

@@ -842,9 +842,10 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["workspace_outline"], "/\n└── workspace/\n    └── files/\n        └── demo.txt")
             self.assertEqual(result["artifacts"]["workspace_outline"], "/\n└── workspace/\n    └── files/\n        └── demo.txt")
             self.assertIn("Known files:\n- /workspace/files/demo.txt", result["workspace_bootstrap"])
+            self.assertIn("Unique filename hints:\n- demo.txt -> /workspace/files/demo.txt", result["workspace_bootstrap"])
             self.assertEqual(result["workspace_bootstrap"], result["artifacts"]["workspace_bootstrap"])
             self.assertIn("find /workspace -name <file>", result["discovery_hint"])
-            self.assertIn("Prefer exact known paths from workspace_bootstrap", result["discovery_hint"])
+            self.assertIn("Prefer exact known paths or filename hints from workspace_bootstrap", result["discovery_hint"])
             self.assertEqual(result["discovery_hint"], result["artifacts"]["discovery_hint"])
 
     def test_find_locates_paths_by_filename(self) -> None:
@@ -1424,7 +1425,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 result["stderr"],
                 "parse error: unsupported `|| false` fallback. "
                 "Supported forms are `|| true`, `|| :`, and `|| help`. "
-                "Otherwise remove the `|| ...` tail and run the main command directly, or use && / ; explicitly.",
+                "Otherwise remove the `|| ...` tail and run the main command directly, or rewrite it as `;` / `&&` explicitly.",
             )
 
     def test_redirect_fails_when_target_is_directory(self) -> None:

@@ -310,7 +310,11 @@ def _detect_unsupported_shell_syntax(cmd: str) -> str | None:
     if "&>" in stripped:
         return "parse error: &> redirect is not supported; only >, >>, >|, and 2>&1 are supported"
     if re.search(r"(^|[^0-9])(?:1>|2>)", stripped):
-        return "parse error: 1>/2> redirects are not supported; only >, >>, >|, and 2>&1 are supported"
+        return (
+            "parse error: general 1>/2> redirects are not supported. "
+            "Use `2>/dev/null` to discard stderr, `2>&1` to merge stderr into stdout, "
+            "or remove the stderr redirect tail and run the main command directly."
+        )
     if _contains_plain_input_redirect(stripped):
         return "parse error: input redirect < is not supported"
     return None
@@ -442,10 +446,12 @@ def _format_unsupported_or_error(fallback_text: str) -> str:
         return (
             f"parse error: unsupported `|| {fallback_text}` fallback. "
             "Supported forms are `|| true`, `|| :`, and `|| help`. "
-            "Otherwise remove the `|| ...` tail and run the main command directly, or use && / ; explicitly."
+            "Otherwise remove the `|| ...` tail and run the main command directly, "
+            "or rewrite it as `;` / `&&` explicitly."
         )
     return (
         "parse error: unsupported || fallback. "
         "Supported forms are `|| true`, `|| :`, and `|| help`. "
-        "Otherwise remove the `|| ...` tail and run the main command directly, or use && / ; explicitly."
+        "Otherwise remove the `|| ...` tail and run the main command directly, "
+        "or rewrite it as `;` / `&&` explicitly."
     )
