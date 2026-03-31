@@ -41,31 +41,8 @@ def make_parse_error(
     return ParseErrorDetail(kind=kind, summary=summary, suggestion=suggestion, example=example)
 
 
-def format_invalid_heredoc_error(command: str) -> str:
-    detail = invalid_heredoc_error_detail(command)
-    return detail.render()
-
-
 def invalid_heredoc_error_detail(command: str) -> ParseErrorDetail:
-    if command == "edit":
-        return ParseErrorDetail(
-            kind="invalid_edit_heredoc",
-            summary="`edit` does not accept heredoc input.",
-            suggestion="Use `edit <file> --find <text> --replace <text>`, `patch --path <file> --unified <diff>`, or `cat <<'EOF' >| <file>` for full rewrites.",
-        )
-    if command == "patch":
-        return ParseErrorDetail(
-            kind="invalid_patch_heredoc",
-            summary="`patch` heredoc input must be passed via `--unified`.",
-            suggestion="Use `patch --path <file> --unified '@@ ...'`, `patch --path <file> --find <text> --replace <text>`, or `cat <<'EOF' >| <file>` for full rewrites.",
-        )
-    return ParseErrorDetail(kind="invalid_heredoc", summary="invalid heredoc syntax")
-
-
-def validate_heredoc_command(command: str) -> str | None:
-    if command not in {"edit", "patch"}:
-        return None
-    return format_invalid_heredoc_error(command)
+    return ParseErrorDetail(kind="invalid_heredoc", summary=f"invalid heredoc syntax for `{command or 'command'}`")
 
 
 def unsupported_or_error_detail(fallback_text: str) -> ParseErrorDetail:

@@ -76,6 +76,26 @@ def build_task_guidance(previous_state: dict[str, Any] | None, result_artifacts:
     )
 
 
+def task_guidance_from_state(state: dict[str, Any] | None) -> TaskGuidanceBundle:
+    return build_task_guidance(state, {"results": []})
+
+
+def render_task_guidance_status(task_guidance: TaskGuidanceBundle) -> str:
+    verification = task_guidance.task_guidance["verification"]
+    write_summary = task_guidance.task_guidance["write_summary"]
+    lines = ["Task status:"]
+    lines.append(f"- changed_paths: {', '.join(verification['changed_paths']) or '-'}")
+    lines.append(f"- pending_verification_paths: {', '.join(verification['pending_verification_paths']) or '-'}")
+    lines.append(f"- verified_paths: {', '.join(verification['verified_paths']) or '-'}")
+    lines.append(f"- possible_missing_targets: {', '.join(verification['possible_missing_targets']) or '-'}")
+    lines.append(f"- recent_paths: {', '.join(write_summary['recent_paths']) or '-'}")
+    if verification["suggested_readback"]:
+        lines.append(f"- suggested_readback: {verification['suggested_readback']}")
+    if task_guidance.verification_hint:
+        lines.append(f"- verification_hint: {task_guidance.verification_hint}")
+    return "\n".join(lines)
+
+
 def assemble_shell_guidance_payload(
     base_artifacts: dict[str, Any],
     *,
@@ -186,7 +206,7 @@ def _summarize_command(command: str, artifacts: dict[str, Any]) -> dict[str, lis
     source = artifacts.get("source")
     target = artifacts.get("target")
 
-    if command in {"cat", "head", "wc", "sort"}:
+    if command in {"cat", "head", "wc", "sort", "verify"}:
         read_paths.extend(files)
         verification_reads.extend(files)
         target_candidates.extend(files)

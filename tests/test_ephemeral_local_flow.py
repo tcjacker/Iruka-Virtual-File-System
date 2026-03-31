@@ -486,7 +486,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["exit_code"], 1)
             self.assertEqual(
                 result["stderr"],
-                "patch: require either --unified or (--find and --replace). "
+                "patch: require either --unified, heredoc diff input, or (--find and --replace). "
                 "Examples: patch --path /workspace/file.txt --unified '@@ -1,1 +1,1 @@ ...' "
                 "or patch --path /workspace/file.txt --find old --replace new",
             )
@@ -575,7 +575,8 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["exit_code"], 1)
             self.assertEqual(
                 result["stderr"],
-                "edit: require --find and --replace. Example: edit /workspace/file.txt --find old --replace new",
+                "edit: require --find and --replace, or provide heredoc input for a full rewrite. "
+                "Example: edit /workspace/file.txt --find old --replace new",
             )
 
     def test_edit_supports_unquoted_multiword_find_replace(self) -> None:
@@ -657,6 +658,116 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 tenant_id="test-tenant",
             )
             self.assertEqual(updated["stdout"], "# Summary\n\nCurrent version: 1.4.0")
+
+    def test_edit_supports_heredoc_full_rewrite_for_existing_file(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 3241)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "edit /workspace/files/demo.txt <<'EOF'\nrewritten\nEOF",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["artifacts"]["path"], "/workspace/files/demo.txt")
+            self.assertEqual(result["artifacts"]["rewrite_mode"], "heredoc")
+
+            updated = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/files/demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(updated["stdout"], "rewritten")
+
+    def test_patch_supports_heredoc_unified_diff(self) -> None:
+        with self.SessionLocal() as db:
+            workspace, runtime_seed = self._prepare_agent_workspace(db, 3242)
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "patch --path /workspace/files/demo.txt <<'EOF'\n@@ -1,1 +1,1 @@\n-hello\n+patched\nEOF",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["artifacts"]["path"], "/workspace/files/demo.txt")
+
+            updated = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/files/demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(updated["stdout"], "patched")
+
+    def test_multiple_heredoc_write_blocks_are_rejected(self) -> None:
+        workspace = VFSWorkspace(
+            id=3243,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-3243",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-3243",
+            tenant_id="test-tenant",
+            workspace_files={
+                "/workspace/src/pricing.py": "def add_tax(price, tax_rate):\n    return price - price * tax_rate\n",
+                "/workspace/docs/bugfix.md": "Pending fix.\n",
+            },
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat <<'EOF' >| /workspace/src/pricing.py\n"
+                "def add_tax(price, tax_rate):\n"
+                "    return price + price * tax_rate\n"
+                "EOF\n"
+                "cat <<'EOF' >| /workspace/docs/bugfix.md\n"
+                "Fixed add_tax to add tax instead of subtracting it.\n"
+                "EOF",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 2)
+            self.assertEqual(
+                result["stderr"],
+                "parse error: multiple heredoc write blocks in a single raw command are not supported. "
+                "Split them into two commands with `;` or `&&`. "
+                "Template: `cat <<'EOF' >| /workspace/a ... EOF ; cat <<'EOF' >| /workspace/b ... EOF`",
+            )
+            self.assertEqual(result["artifacts"]["parse_error"]["kind"], "multiple_heredoc_write_blocks")
+
+            pricing = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/src/pricing.py",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            bugfix = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "cat /workspace/docs/bugfix.md",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(pricing["stdout"], "def add_tax(price, tax_rate):\n    return price - price * tax_rate")
+            self.assertEqual(bugfix["stdout"], "Pending fix.")
 
     def test_patch_fails_when_target_text_is_missing(self) -> None:
         with self.SessionLocal() as db:
@@ -789,7 +900,9 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertIn("Supported commands:", result["stdout"])
             self.assertIn("- help", result["stdout"])
             self.assertIn("- find [path] [-type f|d] [-name <glob>]", result["stdout"])
-            self.assertIn("- grep [-l|-c|-v] <pattern> [path...]", result["stdout"])
+            self.assertIn("- grep [-l|-c|-v|-n] <pattern> [path...]", result["stdout"])
+            self.assertIn("- status", result["stdout"])
+            self.assertIn("- verify [path...]", result["stdout"])
             self.assertIn("- xargs <command> [args...]", result["stdout"])
             self.assertIn("- cp <source> <target>", result["stdout"])
             self.assertIn("- mv <source> <target>", result["stdout"])
@@ -809,6 +922,8 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                     "find",
                     "rg",
                     "grep",
+                    "status",
+                    "verify",
                     "wc",
                     "mkdir",
                     "touch",
@@ -1064,6 +1179,105 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             )
             self.assertIn("cat /workspace/docs/a.md /workspace/docs/b.md", second["verification_hint"])
 
+    def test_status_reports_pending_verification_paths(self) -> None:
+        workspace = VFSWorkspace(
+            id=31941,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-31941",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-31941",
+            tenant_id="test-tenant",
+            workspace_files={
+                "/workspace/docs/a.md": "alpha\n",
+                "/workspace/docs/b.md": "beta\n",
+            },
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "edit /workspace/docs/a.md --find alpha --replace ALPHA && edit /workspace/docs/b.md --find beta --replace BETA",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            status = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "status",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(status["exit_code"], 0)
+            self.assertIn("pending_verification_paths: /workspace/docs/a.md, /workspace/docs/b.md", status["stdout"])
+            self.assertEqual(
+                status["task_guidance"]["verification"]["pending_verification_paths"],
+                ["/workspace/docs/a.md", "/workspace/docs/b.md"],
+            )
+
+    def test_verify_without_args_reads_back_pending_files_and_clears_them(self) -> None:
+        workspace = VFSWorkspace(
+            id=31942,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-31942",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-31942",
+            tenant_id="test-tenant",
+            workspace_files={
+                "/workspace/docs/a.md": "alpha\n",
+                "/workspace/docs/b.md": "beta\n",
+            },
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "edit /workspace/docs/a.md --find alpha --replace ALPHA && edit /workspace/docs/b.md --find beta --replace BETA",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            verify = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "verify",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(verify["exit_code"], 0)
+            self.assertIn("ALPHA", verify["stdout"])
+            self.assertIn("BETA", verify["stdout"])
+            self.assertEqual(
+                verify["task_guidance"]["verification"]["pending_verification_paths"],
+                [],
+            )
+            self.assertEqual(
+                verify["task_guidance"]["verification"]["verified_paths"],
+                ["/workspace/docs/a.md", "/workspace/docs/b.md"],
+            )
+
     def test_task_guidance_clears_only_the_subset_that_was_read_back(self) -> None:
         workspace = VFSWorkspace(
             id=3195,
@@ -1259,6 +1473,41 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             )
             self.assertEqual(result["exit_code"], 0)
             self.assertEqual(result["stdout"], "/workspace/docs/a.md")
+
+    def test_grep_n_reports_line_numbers(self) -> None:
+        workspace = VFSWorkspace(
+            id=3252,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-3252",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-3252",
+            tenant_id="test-tenant",
+            workspace_files={
+                "/workspace/docs/a.md": "alpha\nTODO beta\nomega\n",
+            },
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "grep -n TODO /workspace/docs/a.md",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["stdout"], "/workspace/docs/a.md:2:TODO beta")
 
     def test_grep_c_counts_matches_per_file(self) -> None:
         workspace = VFSWorkspace(
@@ -1497,6 +1746,39 @@ class EphemeralLocalFlowTest(unittest.TestCase):
             self.assertEqual(result["exit_code"], 0)
             self.assertEqual(result["stdout"], "one\ntwo\nthree")
 
+    def test_head_supports_short_numeric_flag(self) -> None:
+        workspace = VFSWorkspace(
+            id=32573,
+            tenant_id="test-tenant",
+            runtime_key="runtime:e2e-32573",
+            metadata_json={},
+        )
+        runtime_seed = RuntimeSeed(
+            runtime_key="runtime:e2e-32573",
+            tenant_id="test-tenant",
+            workspace_files={"/workspace/files/demo.txt": "one\ntwo\nthree\nfour\n"},
+            metadata={},
+        )
+        with self.SessionLocal() as db:
+            self.bootstrap.ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id="test-tenant")
+            self.access_mode.set_workspace_access_mode(
+                db,
+                workspace,
+                workspace_seed=runtime_seed,
+                mode="agent",
+                tenant_id="test-tenant",
+                flush=False,
+            )
+            result = self.file_api.run_virtual_bash(
+                db,
+                workspace,
+                "head -2 /workspace/files/demo.txt",
+                workspace_seed=runtime_seed,
+                tenant_id="test-tenant",
+            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["stdout"], "one\ntwo")
+
     def test_sort_sorts_file_lines(self) -> None:
         workspace = VFSWorkspace(
             id=3258,
@@ -1691,7 +1973,7 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 "Use `cat <file> | <command>`, `echo <text> | <command>`, or `cat <<'EOF' | <command>` instead.",
             )
 
-    def test_edit_heredoc_reports_actionable_error(self) -> None:
+    def test_edit_heredoc_rewrites_existing_file(self) -> None:
         with self.SessionLocal() as db:
             workspace, runtime_seed = self._prepare_agent_workspace(db, 31013)
             result = self.file_api.run_virtual_bash(
@@ -1701,13 +1983,8 @@ class EphemeralLocalFlowTest(unittest.TestCase):
                 workspace_seed=runtime_seed,
                 tenant_id="test-tenant",
             )
-            self.assertEqual(result["exit_code"], 2)
-            self.assertEqual(
-                result["stderr"],
-                "parse error: `edit` does not accept heredoc input. "
-                "Use `edit <file> --find <text> --replace <text>`, "
-                "`patch --path <file> --unified <diff>`, or `cat <<'EOF' >| <file>` for full rewrites.",
-            )
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["artifacts"]["rewrite_mode"], "heredoc")
 
     def test_stderr_devnull_suppresses_error_output(self) -> None:
         with self.SessionLocal() as db:

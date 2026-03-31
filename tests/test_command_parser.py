@@ -87,24 +87,28 @@ class CommandParserTest(unittest.TestCase):
             "Use `cat <file> | <command>`, `echo <text> | <command>`, or `cat <<'EOF' | <command>` instead.",
         )
 
-    def test_invalid_edit_heredoc_syntax_is_actionable(self) -> None:
+    def test_parse_edit_heredoc_into_stdin(self) -> None:
         parsed, error = parse_pipeline_and_redirect("edit /workspace/file.txt <<EOF\nhello\nEOF")
-        self.assertEqual(parsed, {})
-        self.assertEqual(
-            error,
-            "parse error: `edit` does not accept heredoc input. "
-            "Use `edit <file> --find <text> --replace <text>`, "
-            "`patch --path <file> --unified <diff>`, or `cat <<'EOF' >| <file>` for full rewrites.",
-        )
+        self.assertIsNone(error)
+        self.assertEqual(parsed["pipeline"], [["edit", "/workspace/file.txt"]])
+        self.assertEqual(parsed["stdin_text"], "hello\n")
 
-    def test_invalid_patch_heredoc_syntax_is_actionable(self) -> None:
-        parsed, error = parse_pipeline_and_redirect("patch /workspace/file.txt <<EOF\n@@\nEOF")
+    def test_parse_patch_heredoc_into_stdin(self) -> None:
+        parsed, error = parse_pipeline_and_redirect("patch --path /workspace/file.txt <<EOF\n@@ -1,1 +1,1 @@\n-old\n+new\nEOF")
+        self.assertIsNone(error)
+        self.assertEqual(parsed["pipeline"], [["patch", "--path", "/workspace/file.txt"]])
+        self.assertEqual(parsed["stdin_text"], "@@ -1,1 +1,1 @@\n-old\n+new\n")
+
+    def test_rejects_multiple_heredoc_write_blocks_in_one_raw_command(self) -> None:
+        parsed, error = parse_pipeline_and_redirect(
+            "cat <<'EOF' >| /workspace/a\none\nEOF\ncat <<'EOF' >| /workspace/b\ntwo\nEOF"
+        )
         self.assertEqual(parsed, {})
         self.assertEqual(
             error,
-            "parse error: `patch` heredoc input must be passed via `--unified`. "
-            "Use `patch --path <file> --unified '@@ ...'`, "
-            "`patch --path <file> --find <text> --replace <text>`, or `cat <<'EOF' >| <file>` for full rewrites.",
+            "parse error: multiple heredoc write blocks in a single raw command are not supported. "
+            "Split them into two commands with `;` or `&&`. "
+            "Template: `cat <<'EOF' >| /workspace/a ... EOF ; cat <<'EOF' >| /workspace/b ... EOF`",
         )
 
 

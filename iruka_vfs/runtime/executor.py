@@ -19,8 +19,10 @@ Supported commands:
   ls -l / ls -la also work and show type, size, version, and mtime
 - cat <file>
 - find [path] [-type f|d] [-name <glob>]
-- rg [-l|-c] <pattern> [path...]
-- grep [-l|-c|-v] <pattern> [path...]
+- rg [-l|-c|-n] <pattern> [path...]
+- grep [-l|-c|-v|-n] <pattern> [path...]
+- status
+- verify [path...]
 - wc -l <file>
 - mkdir [-p] <path>
 - touch <file>
@@ -46,6 +48,7 @@ Discovery tips:
 - find also supports a limited -exec form, for example: find /workspace -type f -exec grep -l TODO {} \\;
 - Use tree when you need the top-level directory layout
 - Each bash result also includes workspace_outline, workspace_bootstrap, and unique_filename_index for path discovery
+- Use status to inspect tracked changed paths / pending verification, and verify to read back pending files
 - Limited shell-compat tails are supported: 2>/dev/null and restricted || fallbacks (true, :, help)
 
 Write rules:
@@ -55,11 +58,12 @@ Write rules:
 - >> appends to an existing file
 - When rewriting an existing file after reading it, prefer >| directly
 - Limited heredoc is supported, for example: cat <<'EOF' > /workspace/file ... EOF
+- edit / patch also accept heredoc input for existing-file rewrites
 - Use host write_file(..., overwrite=True) or shell >| only after confirmation
 
 Do not use unsupported shell syntax such as:
-- ||
-- <, <<<, 1>, 2>, &>
+- general ||
+- <, general 1>, 2>, &>
 - $(...) or `...`
 """
 
@@ -249,7 +253,7 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
 
     if name in {"rg", "grep"}:
         flags = _expand_short_flags([arg for arg in args if arg.startswith("-")])
-        supported_flags = {"-l", "-c"} | ({"-v"} if name == "grep" else set())
+        supported_flags = {"-l", "-c", "-n"} | ({"-v"} if name == "grep" else set())
         unsupported_flags = sorted(flag for flag in flags if flag not in supported_flags)
         if unsupported_flags:
             return VirtualCommandResult("", _format_search_unsupported_option(name, unsupported_flags[0]), 1, {})
@@ -263,6 +267,7 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         list_only = "-l" in flags
         count_only = "-c" in flags
         invert_match = "-v" in flags
+        line_number = "-n" in flags
         if not targets:
             matched = service._search_text_lines(input_text, pattern, invert_match=invert_match)
             match_count = len(matched)
@@ -277,6 +282,8 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
                 return VirtualCommandResult("", "", 1, {"match_count": 0, "source": "stdin", "flags": sorted(flags)})
             if list_only:
                 return VirtualCommandResult("stdin", "", 0, {"match_count": 1, "source": "stdin", "flags": sorted(flags)})
+            if line_number:
+                matched = [f"{index}:{line}" for index, line in enumerate(matched, start=1)]
             return VirtualCommandResult("\n".join(matched), "", 0, {"match_count": match_count, "source": "stdin", "flags": sorted(flags)})
         outputs: list[str] = []
         match_count = 0
@@ -341,14 +348,18 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         return service._exec_head(db, session, args, input_text=input_text)
     if name == "sort":
         return service._exec_sort(db, session, args, input_text=input_text)
+    if name == "status":
+        return _exec_status(db, session)
+    if name == "verify":
+        return _exec_verify(db, session, args)
     if name == "basename":
         return service._exec_basename(args)
     if name == "dirname":
         return service._exec_dirname(args)
     if name == "edit":
-        return service._exec_edit(db, session, args)
+        return service._exec_edit(db, session, args, input_text=input_text)
     if name == "patch":
-        return service._exec_patch(db, session, args)
+        return service._exec_patch(db, session, args, input_text=input_text)
     if name == "tree":
         return VirtualCommandResult(service.render_virtual_tree(db, session.workspace_id), "", 0, {})
     if name == "echo":
@@ -369,6 +380,8 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
                     "find",
                     "rg",
                     "grep",
+                    "status",
+                    "verify",
                     "wc",
                     "mkdir",
                     "touch",
@@ -436,7 +449,7 @@ def _format_ls_unsupported_option(flag: str) -> str:
 
 
 def _format_search_unsupported_option(command: str, flag: str) -> str:
-    supported = "-l, -c" if command == "rg" else "-l, -c, -v"
+    supported = "-l, -c, -n" if command == "rg" else "-l, -c, -v, -n"
     return (
         f"{command}: unsupported option: {flag}. Supported options: {supported}. "
         f"Try: {command} -l PATTERN /workspace to locate files or {command} -c PATTERN <paths> to count matches."
@@ -457,6 +470,45 @@ def _format_count_outputs(counts: list[tuple[str, int]], *, single_target: bool)
     if single_target and len(counts) == 1:
         return [str(counts[0][1])]
     return [f"{path}:{count}" for path, count in counts]
+
+
+def _exec_status(db: Session, session) -> VirtualCommandResult:
+    from iruka_vfs import service
+    from iruka_vfs.integrations.agent.guidance import GUIDANCE_STATE_KEY, render_task_guidance_status, task_guidance_from_state
+
+    mirror = service._active_workspace_mirror()
+    state = {}
+    if mirror is not None:
+        state = dict((mirror.workspace_metadata or {}).get(GUIDANCE_STATE_KEY) or {})
+    task_guidance = task_guidance_from_state(state)
+    return VirtualCommandResult(
+        render_task_guidance_status(task_guidance),
+        "",
+        0,
+        {
+            "task_guidance": task_guidance.task_guidance,
+            "verification_hint": task_guidance.verification_hint,
+            "modified_paths": task_guidance.modified_paths,
+            "state_source": "workspace_metadata",
+        },
+    )
+
+
+def _exec_verify(db: Session, session, args: list[str]) -> VirtualCommandResult:
+    from iruka_vfs import service
+    from iruka_vfs.integrations.agent.guidance import GUIDANCE_STATE_KEY, task_guidance_from_state
+
+    targets = list(args)
+    if not targets:
+        mirror = service._active_workspace_mirror()
+        state = {}
+        if mirror is not None:
+            state = dict((mirror.workspace_metadata or {}).get(GUIDANCE_STATE_KEY) or {})
+        guidance = task_guidance_from_state(state)
+        targets = list(guidance.task_guidance["verification"]["pending_verification_paths"])
+    if not targets:
+        return VirtualCommandResult("No pending verification paths.", "", 0, {"files": [], "verification": "noop"})
+    return exec_argv(db, session, ["cat", *targets], input_text="")
 
 
 def _format_missing_target_hint(command: str, target: str, *, db: Session, session, directory_style: bool) -> str:

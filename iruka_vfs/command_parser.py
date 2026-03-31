@@ -10,7 +10,6 @@ from iruka_vfs.parse_errors import (
     make_parse_error,
     shlex_parse_error_detail,
     unsupported_or_error_detail,
-    validate_heredoc_command,
 )
 
 
@@ -261,21 +260,32 @@ def _extract_heredoc(cmd: str) -> tuple[str, str, ParseErrorDetail | None]:
 
     delimiter = next(group for group in match.groups() if group is not None)
     header_without_heredoc = (header[: match.start()] + header[match.end() :]).strip()
-    heredoc_command_error = validate_heredoc_command(_first_command_name(header_without_heredoc))
-    if heredoc_command_error:
-        return "", "", invalid_heredoc_error_detail(_first_command_name(header_without_heredoc))
     body_lines = lines[1:]
     collected: list[str] = []
     terminator_found = False
-    for line in body_lines:
+    terminator_idx = -1
+    for idx, line in enumerate(body_lines):
         if line.rstrip("\r\n") == delimiter:
             terminator_found = True
+            terminator_idx = idx
             break
         collected.append(line)
     if not terminator_found:
         return "", "", make_parse_error("missing_heredoc_terminator", f"heredoc terminator not found: {delimiter}")
     if "<<" in header_without_heredoc:
         return "", "", make_parse_error("multiple_heredocs", "multiple heredocs are not supported")
+    trailing = "".join(body_lines[terminator_idx + 1 :]).strip()
+    if trailing:
+        return (
+            "",
+            "",
+            make_parse_error(
+                "multiple_heredoc_write_blocks",
+                "multiple heredoc write blocks in a single raw command are not supported.",
+                suggestion="Split them into two commands with `;` or `&&`.",
+                example="Template: `cat <<'EOF' >| /workspace/a ... EOF ; cat <<'EOF' >| /workspace/b ... EOF`",
+            ),
+        )
     return header_without_heredoc, "".join(collected), None
 
 

@@ -312,6 +312,10 @@ def exec_head(db: Session, session, args: list[str], *, input_text: str) -> Virt
                 return VirtualCommandResult("", f"head: invalid line count: {args[idx + 1]}", 1, {})
             idx += 2
             continue
+        if token.startswith("-") and len(token) > 1 and token[1:].isdigit():
+            line_count = int(token[1:])
+            idx += 1
+            continue
         if token.startswith("-"):
             return VirtualCommandResult("", f"head: unsupported option: {token}", 1, {})
         targets.append(token)
