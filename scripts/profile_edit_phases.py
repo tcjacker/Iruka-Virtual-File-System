@@ -326,11 +326,13 @@ def run_scenario(
         runtime_key=f"{tenant}:phase-profile",
         file_index=1,
         chapter_text=module.render_size_target(chapter_bytes, marker_count=max(iterations + 8, 256)),
-        context_files={"outline.md": "benchmark marker\n" * 8},
-        skill_files={"style.md": "keep edits deterministic\n"},
+        workspace_files={
+            "/workspace/docs/outline.md": "benchmark marker\n" * 8,
+            "/workspace/docs/style.md": "keep edits deterministic\n",
+        },
     )
 
-    chapter_path = "/workspace/chapters/chapter_1.md"
+    chapter_path = "/workspace/files/document_1.md"
     command_latencies: list[float] = []
     checkpoint_waits: list[float] = []
     iteration_rows: list[dict[str, Any]] = []

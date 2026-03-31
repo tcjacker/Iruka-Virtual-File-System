@@ -16,7 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from iruka_vfs import WritableFileSource, create_workspace
+from iruka_vfs import build_workspace_seed, create_workspace
 from iruka_vfs.dependencies import VFSDependencies, configure_vfs_dependencies
 
 
@@ -81,10 +81,6 @@ class DemoShellCommand(Base):
     artifacts_json: Mapped[dict] = mapped_column(JSON, default=dict)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     ended_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-
-class DemoChapter:
-    pass
 
 
 @dataclass
@@ -165,7 +161,6 @@ def main() -> None:
         VFSDependencies(
             settings=DemoSettings(),
             AgentWorkspace=DemoWorkspace,
-            Chapter=DemoChapter,
             VirtualFileNode=DemoFileNode,
             VirtualShellCommand=DemoShellCommand,
             VirtualShellSession=DemoShellSession,
@@ -181,8 +176,6 @@ def main() -> None:
     Base.metadata.create_all(bind=engine)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
 
-    chapter_text = {"value": "First draft line.\nSecond line.\n"}
-
     with SessionLocal() as db:
         workspace_row = DemoWorkspace(
             tenant_id="demo",
@@ -197,34 +190,32 @@ def main() -> None:
         workspace = create_workspace(
             workspace=workspace_row,
             tenant_id="demo",
-            runtime_key=f"workspace:{workspace_row.id}",
-            primary_file=WritableFileSource(
-                file_id="chapter:1",
-                virtual_path="/workspace/chapters/chapter_1.md",
-                read_text=lambda: chapter_text["value"],
-                write_text=lambda text: chapter_text.__setitem__("value", text),
-                metadata={"source_type": "standalone-demo"},
+            workspace_seed=build_workspace_seed(
+                runtime_key=f"workspace:{workspace_row.id}",
+                tenant_id="demo",
+                workspace_files={
+                    "/workspace/files/demo_file.md": "First draft line.\nSecond line.\n",
+                    "/workspace/docs/outline.md": "# Outline\n\nA small standalone demo.\n",
+                },
             ),
-            context_files={"outline.md": "# Outline\n\nA small standalone demo.\n"},
-            skill_files={"index.md": "# Skills\n\n- none\n"},
         )
 
         snapshot = workspace.ensure(db)
         print("tree:\n", snapshot.get("tree") or "")
         workspace.enter_agent_mode(db)
 
-        read_result = workspace.bash(db, "cat /workspace/chapters/chapter_1.md")
+        read_result = workspace.bash(db, "cat /workspace/files/demo_file.md")
         print("cat stdout:\n", read_result["stdout"])
 
         edit_result = workspace.bash(
             db,
-            "edit /workspace/chapters/chapter_1.md --find First --replace Rewritten",
+            "edit /workspace/files/demo_file.md --find First --replace Rewritten",
         )
         print("edit exit_code:", edit_result["exit_code"])
         print("edit stdout:\n", edit_result["stdout"])
 
         workspace.flush()
-        print("host text after flush:\n", chapter_text["value"])
+        print("final file after flush:\n", workspace.read_file(db, "/workspace/files/demo_file.md"))
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from iruka_vfs.dependencies import get_vfs_dependencies
+from iruka_vfs.constants import MEMORY_CACHE_ENABLED, VFS_ROOT
 from iruka_vfs.memory_cache import (
     cache_metric_inc as _cache_metric_inc,
     ensure_mem_cache_worker as _ensure_mem_cache_worker_api,
@@ -25,22 +25,37 @@ from iruka_vfs.runtime import (
     collect_files as _collect_files,
     collect_files_for_search as _collect_files_for_search,
     count_lines as _count_lines,
+    count_text_matches as _count_text_matches,
+    delete_node as delete_node,
     exec_argv as _exec_argv,
+    exec_basename as _exec_basename,
+    exec_cp as _exec_cp,
+    exec_dirname as _exec_dirname,
     exec_edit as _exec_edit,
+    exec_find as _exec_find,
+    exec_head as _exec_head,
     exec_mkdir as _exec_mkdir,
+    exec_mv as _exec_mv,
     exec_patch as _exec_patch,
+    exec_rm as _exec_rm,
+    exec_sort as _exec_sort,
     exec_touch as _exec_touch,
     exec_wc as _exec_wc,
+    find_paths as _find_paths,
+    format_missing_path_error as _format_missing_path_error,
     get_or_create_child_dir as _get_or_create_child_dir,
     get_or_create_child_file as _get_or_create_child_file,
     get_or_create_root as _get_or_create_root,
     get_or_create_session as _get_or_create_session,
     mkdir_parents as _mkdir_parents,
+    move_node as move_node,
     must_get_node as _must_get_node,
     prepare_artifacts_for_log as _prepare_artifacts_for_log,
     run_command_chain as _run_command_chain,
     run_single_command as _run_single_command,
     safe_compile as _safe_compile,
+    search_match_counts as _search_match_counts,
+    search_matching_file_paths as _search_matching_file_paths,
     search_display_path as _search_display_path,
     search_nodes as _search_nodes,
     search_text_lines as _search_text_lines,
@@ -48,29 +63,31 @@ from iruka_vfs.runtime import (
     truncate_for_log as _truncate_for_log,
     write_file as _write_file,
 )
-from iruka_vfs.runtime_seed import RuntimeSeed
-from iruka_vfs.service_ops.access_mode import (
+from iruka_vfs.runtime_seed import RuntimeSeed, WorkspaceSeed
+from iruka_vfs.integrations.agent.access_mode import (
     assert_workspace_access_mode as _assert_workspace_access_mode,
     get_workspace_access_mode,
     set_workspace_access_mode,
     workspace_access_mode_for_runtime as _workspace_access_mode_for_runtime,
 )
+from iruka_vfs.integrations.agent.shell import run_virtual_bash
 from iruka_vfs.service_ops.bootstrap import (
     ensure_virtual_dir_path as _ensure_virtual_dir_path,
+    refresh_virtual_workspace,
     ensure_virtual_workspace,
     normalize_workspace_path as _normalize_workspace_path,
     seed_workspace_file as _seed_workspace_file,
-    sync_external_file_source as _sync_external_file_source,
     workspace_access_mode_from_metadata as _workspace_access_mode_from_metadata,
 )
 from iruka_vfs.service_ops.file_api import (
     allow_write_path as _allow_write_path,
+    detect_ambiguous_create_target as _detect_ambiguous_create_target,
     flush_workspace,
+    format_ambiguous_create_target_message as _format_ambiguous_create_target_message,
     normalize_virtual_path as _normalize_virtual_path,
     read_workspace_directory,
     read_workspace_file,
     resolve_target_path_for_write as _resolve_target_path_for_write,
-    run_virtual_bash,
     write_workspace_file,
 )
 from iruka_vfs.service_ops.state import (
@@ -84,7 +101,6 @@ from iruka_vfs.service_ops.state import (
     register_runtime_seed as _register_runtime_seed,
     set_cached_workspace_state as _set_cached_workspace_state,
 )
-from iruka_vfs.sqlalchemy_repositories import build_sqlalchemy_repositories
 from iruka_vfs.tree_view import render_tree_lines as _render_tree_lines
 from iruka_vfs.tree_view import render_virtual_tree
 from iruka_vfs.workspace_mirror import (
@@ -98,50 +114,61 @@ from iruka_vfs.workspace_mirror import (
     enqueue_workspace_checkpoint as _enqueue_workspace_checkpoint,
     ensure_children_sorted_locked as _ensure_children_sorted_locked,
     ensure_workspace_checkpoint_worker as _ensure_workspace_checkpoint_worker_api,
+    execute_workspace_mirror_transaction as _execute_workspace_mirror_transaction,
     flush_workspace_mirror as _flush_workspace_mirror_api,
     get_workspace_mirror as _get_workspace_mirror,
     get_workspace_mirror as _get_workspace_mirror_api,
-    load_workspace_mirror_by_base_key as _load_workspace_mirror_by_base_key,
     mirror_has_dirty_state as _mirror_has_dirty_state,
     mirror_node_path_locked as _mirror_node_path_locked,
+    mark_workspace_lock_held as _mark_workspace_lock_held,
+    mutate_workspace_mirror as _mutate_workspace_mirror,
     rebuild_workspace_mirror_indexes_locked as _rebuild_workspace_mirror_indexes_locked,
     set_active_workspace_mirror as _set_active_workspace_mirror,
     set_active_workspace_scope as _set_active_workspace_scope,
     set_active_workspace_tenant as _set_active_workspace_tenant,
     set_workspace_mirror as _set_workspace_mirror_api,
-    workspace_due_key as _workspace_due_key,
-    workspace_enqueued_key as _workspace_enqueued_key,
     workspace_lock as _workspace_lock_api,
-    workspace_mirror_key as _workspace_mirror_key,
     workspace_scope_for_db as _workspace_scope_for_db,
 )
 
-_dependencies = get_vfs_dependencies()
-_repositories = _dependencies.repositories or build_sqlalchemy_repositories(_dependencies)
-settings = _dependencies.settings
-AgentWorkspace = _dependencies.AgentWorkspace
-Chapter = _dependencies.Chapter
-VirtualFileNode = _dependencies.VirtualFileNode
-VirtualShellCommand = _dependencies.VirtualShellCommand
-VirtualShellSession = _dependencies.VirtualShellSession
-
 __all__ = [
     "AgentWorkspace",
-    "Chapter",
-    "RuntimeSeed",
     "VirtualCommandResult",
     "VirtualFileNode",
     "VirtualShellCommand",
     "VirtualShellSession",
+    "WorkspaceSeed",
     "WorkspaceMirror",
     "ensure_virtual_workspace",
     "flush_workspace",
     "get_workspace_access_mode",
     "read_workspace_directory",
     "read_workspace_file",
+    "refresh_virtual_workspace",
     "render_virtual_tree",
     "run_virtual_bash",
     "set_workspace_access_mode",
     "snapshot_virtual_fs_cache_metrics",
     "write_workspace_file",
+    "RuntimeSeed",
 ]
+
+
+def __getattr__(name: str):
+    if name == "_dependencies":
+        from iruka_vfs.dependencies import get_vfs_dependencies
+
+        return get_vfs_dependencies()
+    if name == "_repositories":
+        from iruka_vfs.dependency_resolution import resolve_vfs_repositories
+
+        return resolve_vfs_repositories()
+    if name == "settings":
+        from iruka_vfs.dependencies import get_vfs_dependencies
+
+        return get_vfs_dependencies().settings
+    if name in {"AgentWorkspace", "VirtualFileNode", "VirtualShellCommand", "VirtualShellSession"}:
+        from iruka_vfs.dependencies import get_vfs_dependencies
+
+        return getattr(get_vfs_dependencies(), name)
+    raise AttributeError(name)

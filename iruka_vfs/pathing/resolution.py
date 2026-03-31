@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from iruka_vfs.dependencies import get_vfs_dependencies
+from iruka_vfs.dependency_resolution import resolve_vfs_repositories
 
-_dependencies = get_vfs_dependencies()
-VirtualFileNode = _dependencies.VirtualFileNode
+
+def _node_model():
+    from iruka_vfs.dependencies import get_vfs_dependencies
+
+    return get_vfs_dependencies().VirtualFileNode
 
 
 def resolve_parent_for_create(
@@ -14,7 +19,7 @@ def resolve_parent_for_create(
     workspace_id: int,
     cwd_node_id: int,
     raw_path: str,
-) -> tuple[VirtualFileNode | None, str]:
+) -> tuple[Any | None, str]:
     from iruka_vfs import service
 
     cleaned = raw_path.rstrip("/")
@@ -33,11 +38,14 @@ def resolve_parent_for_create(
     return parent, leaf
 
 
-def resolve_path(db: Session, workspace_id: int, cwd_node_id: int, path: str) -> VirtualFileNode | None:
+def resolve_path(db: Session, workspace_id: int, cwd_node_id: int, path: str) -> Any | None:
     from iruka_vfs import service
+    from iruka_vfs.service_ops.state import workspace_state_uses_redis
 
     tenant_key = service._effective_tenant_key()
-    mirror = service._get_workspace_mirror(workspace_id, tenant_key=tenant_key)
+    mirror = None if workspace_state_uses_redis() else service._get_workspace_mirror(workspace_id, tenant_key=tenant_key)
+    if mirror is None:
+        mirror = service._get_workspace_mirror(workspace_id, tenant_key=tenant_key)
     if mirror:
         with mirror.lock:
             if not path:
@@ -87,31 +95,55 @@ def resolve_path(db: Session, workspace_id: int, cwd_node_id: int, path: str) ->
         current = service._must_get_node(db, cwd_node_id)
         parts = [item for item in path.split("/") if item]
 
+    repositories = resolve_vfs_repositories()
+
     for part in parts:
         if part == ".":
             continue
         if part == "..":
             if current.parent_id is None:
                 continue
-            parent = db.scalars(
-                select(VirtualFileNode).where(
-                    VirtualFileNode.tenant_id == tenant_key,
-                    VirtualFileNode.id == current.parent_id,
-                )
-            ).first()
+            if db is None:
+                parent = repositories.node.get_node(db, int(current.parent_id), tenant_key)
+            else:
+                node_model = _node_model()
+                parent = db.scalars(
+                    select(node_model).where(
+                        node_model.tenant_id == tenant_key,
+                        node_model.id == current.parent_id,
+                    )
+                ).first()
             if not parent:
                 return None
             current = parent
             continue
 
-        child = db.scalars(
-            select(VirtualFileNode).where(
-                VirtualFileNode.tenant_id == tenant_key,
-                VirtualFileNode.workspace_id == workspace_id,
-                VirtualFileNode.parent_id == current.id,
-                VirtualFileNode.name == part,
+        if db is None:
+            child = repositories.node.get_child(
+                db,
+                tenant_key=tenant_key,
+                workspace_id=workspace_id,
+                parent_id=int(current.id),
+                name=part,
+                node_type="dir",
+            ) or repositories.node.get_child(
+                db,
+                tenant_key=tenant_key,
+                workspace_id=workspace_id,
+                parent_id=int(current.id),
+                name=part,
+                node_type="file",
             )
-        ).first()
+        else:
+            node_model = _node_model()
+            child = db.scalars(
+                select(node_model).where(
+                    node_model.tenant_id == tenant_key,
+                    node_model.workspace_id == workspace_id,
+                    node_model.parent_id == current.id,
+                    node_model.name == part,
+                )
+            ).first()
         if not child:
             return None
         current = child
@@ -119,30 +151,43 @@ def resolve_path(db: Session, workspace_id: int, cwd_node_id: int, path: str) ->
     return current
 
 
-def list_children(db: Session, workspace_id: int, parent_id: int) -> list[VirtualFileNode]:
+def list_children(db: Session, workspace_id: int, parent_id: int) -> list[Any]:
     from iruka_vfs import service
+    from iruka_vfs.service_ops.state import workspace_state_uses_redis
 
     tenant_key = service._effective_tenant_key()
-    mirror = service._get_workspace_mirror(workspace_id, tenant_key=tenant_key)
+    mirror = None if workspace_state_uses_redis() else service._get_workspace_mirror(workspace_id, tenant_key=tenant_key)
+    if mirror is None:
+        mirror = service._get_workspace_mirror(workspace_id, tenant_key=tenant_key)
     if mirror:
         with mirror.lock:
             return [mirror.nodes[child_id] for child_id in mirror.children_by_parent.get(parent_id, [])]
+    if db is None:
+        return [
+            node
+            for node in resolve_vfs_repositories().node.list_workspace_nodes(db, workspace_id, tenant_key)
+            if int(getattr(node, "parent_id", -1) or -1) == int(parent_id)
+        ]
+    node_model = _node_model()
     return db.scalars(
-        select(VirtualFileNode)
+        select(node_model)
         .where(
-            VirtualFileNode.tenant_id == tenant_key,
-            VirtualFileNode.workspace_id == workspace_id,
-            VirtualFileNode.parent_id == parent_id,
+            node_model.tenant_id == tenant_key,
+            node_model.workspace_id == workspace_id,
+            node_model.parent_id == parent_id,
         )
-        .order_by(VirtualFileNode.node_type.asc(), VirtualFileNode.name.asc())
+        .order_by(node_model.node_type.asc(), node_model.name.asc())
     ).all()
 
 
-def node_path(db: Session, node: VirtualFileNode) -> str:
+def node_path(db: Session, node: Any) -> str:
     from iruka_vfs import service
+    from iruka_vfs.service_ops.state import workspace_state_uses_redis
 
     tenant_key = service._effective_tenant_key(getattr(node, "tenant_id", None))
-    mirror = service._get_workspace_mirror(int(node.workspace_id), tenant_key=tenant_key)
+    mirror = None if workspace_state_uses_redis() else service._get_workspace_mirror(int(node.workspace_id), tenant_key=tenant_key)
+    if mirror is None:
+        mirror = service._get_workspace_mirror(int(node.workspace_id), tenant_key=tenant_key)
     if mirror:
         with mirror.lock:
             mirror_node = mirror.nodes.get(int(node.id), node)
@@ -151,13 +196,18 @@ def node_path(db: Session, node: VirtualFileNode) -> str:
         return "/"
     names = [node.name]
     parent_id = node.parent_id
+    repositories = resolve_vfs_repositories()
     while parent_id is not None:
-        parent = db.scalars(
-            select(VirtualFileNode).where(
-                VirtualFileNode.tenant_id == tenant_key,
-                VirtualFileNode.id == parent_id,
-            )
-        ).first()
+        if db is None:
+            parent = repositories.node.get_node(db, int(parent_id), tenant_key)
+        else:
+            node_model = _node_model()
+            parent = db.scalars(
+                select(node_model).where(
+                    node_model.tenant_id == tenant_key,
+                    node_model.id == parent_id,
+                )
+            ).first()
         if not parent:
             break
         if parent.parent_id is None:

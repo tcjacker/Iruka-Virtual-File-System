@@ -64,13 +64,15 @@ def run_edit_series(module, session_local, *, tenant: str, iterations: int, disa
             runtime_key=tenant + ":edit-profile",
             file_index=1,
             chapter_text=module.render_size_target(64 * 1024, marker_count=max(iterations + 8, 256)),
-            context_files={"outline.md": "benchmark marker\n" * 8},
-            skill_files={"style.md": "keep edits deterministic\n"},
+            workspace_files={
+                "/workspace/docs/outline.md": "benchmark marker\n" * 8,
+                "/workspace/docs/style.md": "keep edits deterministic\n",
+            },
         )
 
         latencies: list[float] = []
         paths: list[dict[str, object]] = []
-        chapter_path = "/workspace/chapters/chapter_1.md"
+        chapter_path = "/workspace/files/document_1.md"
         for i in range(iterations):
             command = f"edit {chapter_path} --find MARKER_{i:03d} --replace MARKER_{i + 1:03d}"
             with session_local() as db:

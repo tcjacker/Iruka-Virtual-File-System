@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-import json
 import time
 import traceback
 
@@ -16,8 +15,8 @@ from iruka_vfs.constants import (
     VFS_CHECKPOINT_RETRY_BASE_SECONDS,
     VFS_CHECKPOINT_RETRY_MAX_SECONDS,
 )
-from iruka_vfs.file_sources import WritableFileSource
 from iruka_vfs.models import WorkspaceMirror
+from iruka_vfs.service_ops.state import get_workspace_state_store
 from iruka_vfs import runtime_state
 
 
@@ -35,87 +34,62 @@ def _checkpoint_retry_delay_seconds(failure_count: int) -> float:
     return min(max(VFS_CHECKPOINT_RETRY_BASE_SECONDS, 0.01) * (2 ** exponent), max(VFS_CHECKPOINT_RETRY_MAX_SECONDS, 0.01))
 
 
-def _clear_checkpoint_failure_state(client, base_key: str) -> None:
-    from iruka_vfs import workspace_mirror as mirror_api
+def _clear_checkpoint_failure_state(workspace_ref) -> None:
+    store = get_workspace_state_store()
+    store.clear_retry_count(workspace_ref)
+    store.clear_dead_letter_payload(workspace_ref)
+    store.remove_dead_letter(workspace_ref)
 
-    client.delete(mirror_api.workspace_retry_count_key(base_key))
-    client.delete(mirror_api.workspace_dead_letter_payload_key(base_key))
-    client.srem(mirror_api.workspace_dead_letter_set_key(), base_key)
 
-
-def _record_checkpoint_failure(
-    client,
-    base_key: str,
-    *,
-    reason: str,
-    error_payload: dict[str, object],
-) -> tuple[bool, int]:
-    from iruka_vfs import workspace_mirror as mirror_api
-
-    failure_count = int(client.get(mirror_api.workspace_retry_count_key(base_key)) or 0) + 1
-    client.set(mirror_api.workspace_retry_count_key(base_key), str(failure_count))
+def _record_checkpoint_failure(workspace_ref, *, reason: str, error_payload: dict[str, object]) -> tuple[bool, int]:
+    store = get_workspace_state_store()
+    failure_count = store.increment_retry_count(workspace_ref)
     if failure_count >= max(int(VFS_CHECKPOINT_MAX_FAILURES), 1):
-        client.sadd(mirror_api.workspace_dead_letter_set_key(), base_key)
-        client.set(
-            mirror_api.workspace_dead_letter_payload_key(base_key),
-            json.dumps(
-                {
-                    "base_key": base_key,
-                    "failure_count": failure_count,
-                    "reason": reason,
-                    "last_failure": error_payload,
-                    "ts": datetime.utcnow().isoformat(),
-                },
-                ensure_ascii=False,
-            ),
+        store.add_dead_letter(workspace_ref)
+        store.set_dead_letter_payload(
+            workspace_ref,
+            {
+                "workspace_id": int(workspace_ref.workspace_id),
+                "tenant_key": str(workspace_ref.tenant_key),
+                "scope_key": str(workspace_ref.scope_key),
+                "failure_count": failure_count,
+                "reason": reason,
+                "last_failure": error_payload,
+                "ts": datetime.utcnow().isoformat(),
+            },
         )
         return True, failure_count
     return False, failure_count
 
 
 def snapshot_workspace_checkpoint_metrics() -> dict[str, int]:
-    from iruka_vfs import service
-    from iruka_vfs import workspace_mirror as mirror_api
-
-    client = service._get_redis_client()
-    queue_depth = 0
-    enqueued = 0
-    dirty = 0
-    dead_letter = 0
-    try:
-        if hasattr(client, "llen"):
-            queue_depth = int(client.llen(mirror_api.workspace_queue_key()) or 0)
-        elif hasattr(client, "queues"):
-            queue_depth = len(client.queues.get(mirror_api.workspace_queue_key(), []))
-        if hasattr(client, "scard"):
-            enqueued = int(client.scard(mirror_api.workspace_enqueued_key()) or 0)
-            dirty = int(client.scard(mirror_api.workspace_dirty_set_key()) or 0)
-            dead_letter = int(client.scard(mirror_api.workspace_dead_letter_set_key()) or 0)
-        elif hasattr(client, "sets"):
-            enqueued = len(client.sets.get(mirror_api.workspace_enqueued_key(), set()))
-            dirty = len(client.sets.get(mirror_api.workspace_dirty_set_key(), set()))
-            dead_letter = len(client.sets.get(mirror_api.workspace_dead_letter_set_key(), set()))
-    except Exception:
-        pass
-    return {
-        "checkpoint_queue_depth": int(queue_depth),
-        "checkpoint_enqueued": int(enqueued),
-        "checkpoint_dirty_workspaces": int(dirty),
-        "checkpoint_dead_letter": int(dead_letter),
-    }
+    return get_workspace_state_store().get_checkpoint_metrics()
 
 
-def enqueue_workspace_checkpoint(base_key: str, *, due_at: float | None = None, force: bool = False) -> None:
-    from iruka_vfs import service
-    from iruka_vfs import workspace_mirror as mirror_api
-
-    client = service._get_redis_client()
-    if not force and client.get(mirror_api.workspace_dead_letter_payload_key(base_key)):
-        return
+def enqueue_workspace_checkpoint(workspace_ref, *, due_at: float | None = None, force: bool = False) -> None:
     scheduled_at = due_at if due_at is not None else time.time() + max(VFS_CHECKPOINT_DEBOUNCE_SECONDS, 0.0)
-    client.set(mirror_api.workspace_due_key(base_key), str(scheduled_at))
-    if int(client.sadd(mirror_api.workspace_enqueued_key(), base_key) or 0) == 1:
-        client.rpush(mirror_api.workspace_queue_key(), base_key)
+    get_workspace_state_store().enqueue_workspace_checkpoint(workspace_ref, due_at=scheduled_at, force=force)
+
+
+def resolve_workspace_ref_for_flush(
+    workspace_id: int,
+    *,
+    tenant_key: str,
+    scope_key: str | None = None,
+):
+    store = get_workspace_state_store()
+    mirror = None
+    if scope_key:
+        mirror = store.get_workspace_mirror(
+            workspace_id,
+            tenant_key=tenant_key,
+            scope_key=scope_key,
+        )
+    if mirror is None:
+        mirror = store.get_workspace_mirror(workspace_id, tenant_key=tenant_key)
+    if mirror is None:
+        return None
+    return store.workspace_ref(mirror=mirror)
 
 
 def _node_matches_payload(node, payload: dict[str, object]) -> bool:
@@ -189,6 +163,8 @@ def _confirm_flushed_snapshot_locked(
     snapshot: dict[str, object],
     remapped_ids: list[tuple[int, int]],
 ) -> None:
+    from iruka_vfs import workspace_mirror as mirror_api
+
     snapshot_revision = int(snapshot["snapshot_revision"])
     flushed_payloads = _remap_payload_node_ids(list(snapshot["dirty_payloads"]), remapped_ids)
     remap = {int(temp_id): int(real_id) for temp_id, real_id in remapped_ids}
@@ -200,19 +176,17 @@ def _confirm_flushed_snapshot_locked(
         if not node:
             continue
         node.id = real_id
-        if node.parent_id is not None and int(node.parent_id) == temp_id:
-            node.parent_id = real_id
+        if node.parent_id is not None:
+            node.parent_id = remap.get(int(node.parent_id), int(node.parent_id))
         current.nodes[real_id] = node
-        for child_ids in current.children_by_parent.values():
-            for idx, child_id in enumerate(child_ids):
-                if child_id == temp_id:
-                    child_ids[idx] = real_id
-        current.path_to_id = {
-            path: (real_id if node_id == temp_id else node_id)
-            for path, node_id in current.path_to_id.items()
-        }
         if current.cwd_node_id == temp_id:
             current.cwd_node_id = real_id
+
+    for node in current.nodes.values():
+        if node.parent_id is not None:
+            node.parent_id = remap.get(int(node.parent_id), int(node.parent_id))
+
+    mirror_api.rebuild_workspace_mirror_indexes_locked(current)
 
     for payload in flushed_payloads:
         node_id = int(payload["node_id"])
@@ -260,63 +234,49 @@ def workspace_checkpoint_worker() -> None:
     if runtime_state.workspace_checkpoint_session_maker is None:
         return
 
-    client = service._get_redis_client()
+    store = get_workspace_state_store()
     while True:
         try:
-            item = client.blpop(mirror_api.workspace_queue_key(), timeout=max(int(MEMORY_CACHE_FLUSH_INTERVAL_SECONDS), 1))
+            workspace_ref = store.pop_checkpoint(timeout_seconds=max(int(MEMORY_CACHE_FLUSH_INTERVAL_SECONDS), 1))
         except Exception:
             continue
-        if not item:
+        if not workspace_ref:
             continue
-        _, base_key = item
         try:
-            if client.get(mirror_api.workspace_dead_letter_payload_key(str(base_key))):
-                client.srem(mirror_api.workspace_enqueued_key(), str(base_key))
-                client.delete(mirror_api.workspace_due_key(str(base_key)))
+            if store.get_dead_letter_payload(workspace_ref):
+                store.clear_checkpoint_schedule(workspace_ref)
                 continue
-            due_raw = client.get(mirror_api.workspace_due_key(str(base_key)))
-            if due_raw:
-                try:
-                    due_at = float(due_raw)
-                except (TypeError, ValueError):
-                    due_at = 0.0
+            due_at = store.get_checkpoint_due_at(workspace_ref)
+            if due_at is not None:
                 remaining = due_at - time.time()
                 if remaining > 0:
                     time.sleep(min(remaining, max(VFS_CHECKPOINT_DEBOUNCE_SECONDS, 0.01)))
-                    client.rpush(mirror_api.workspace_queue_key(), str(base_key))
+                    store.requeue_checkpoint(workspace_ref)
                     service._cache_metric_inc("checkpoint_requeue")
                     continue
-            ok = flush_workspace_mirror(None, base_key=str(base_key))
-            client.srem(mirror_api.workspace_enqueued_key(), str(base_key))
-            client.delete(mirror_api.workspace_due_key(str(base_key)))
-            current = mirror_api.load_workspace_mirror_by_base_key(client, str(base_key))
-            if current:
-                if mirror_has_dirty_state(current):
-                    enqueue_workspace_checkpoint(str(base_key))
-                    service._cache_metric_inc("checkpoint_requeue")
-                    continue
+            ok, has_more_dirty = run_checkpoint_cycle(workspace_ref)
+            if has_more_dirty:
+                service._cache_metric_inc("checkpoint_requeue")
+                continue
             if not ok:
-                error_raw = client.get(mirror_api.workspace_error_key(str(base_key)))
-                error_payload = json.loads(error_raw) if error_raw else {"error_message": "flush returned false"}
+                error_payload = store.get_error_payload(workspace_ref) or {"error_message": "flush returned false"}
                 dead_lettered, failure_count = _record_checkpoint_failure(
-                    client,
-                    str(base_key),
+                    workspace_ref,
                     reason="flush-returned-false",
                     error_payload=dict(error_payload),
                 )
                 if dead_lettered:
                     service._cache_metric_inc("checkpoint_dead_letter")
-                    client.srem(mirror_api.workspace_enqueued_key(), str(base_key))
-                    client.delete(mirror_api.workspace_due_key(str(base_key)))
+                    store.clear_checkpoint_schedule(workspace_ref)
                     continue
                 enqueue_workspace_checkpoint(
-                    str(base_key),
+                    workspace_ref,
                     due_at=time.time() + _checkpoint_retry_delay_seconds(failure_count),
                     force=True,
                 )
                 service._cache_metric_inc("checkpoint_retry")
                 continue
-            _clear_checkpoint_failure_state(client, str(base_key))
+            _clear_checkpoint_failure_state(workspace_ref)
         except Exception as exc:
             service._cache_metric_inc("flush_error")
             error_payload = {
@@ -325,15 +285,10 @@ def workspace_checkpoint_worker() -> None:
                 "error_message": str(exc),
                 "traceback": traceback.format_exc(limit=20),
             }
-            client.set(
-                mirror_api.workspace_error_key(str(base_key)),
-                json.dumps(error_payload, ensure_ascii=False),
-            )
-            client.srem(mirror_api.workspace_enqueued_key(), str(base_key))
-            client.delete(mirror_api.workspace_due_key(str(base_key)))
+            store.set_error_payload(workspace_ref, error_payload)
+            store.clear_checkpoint_schedule(workspace_ref)
             dead_lettered, failure_count = _record_checkpoint_failure(
-                client,
-                str(base_key),
+                workspace_ref,
                 reason="worker-exception",
                 error_payload=error_payload,
             )
@@ -341,69 +296,96 @@ def workspace_checkpoint_worker() -> None:
                 service._cache_metric_inc("checkpoint_dead_letter")
                 continue
             enqueue_workspace_checkpoint(
-                str(base_key),
+                workspace_ref,
                 due_at=time.time() + _checkpoint_retry_delay_seconds(failure_count),
                 force=True,
             )
             service._cache_metric_inc("checkpoint_retry")
 
 
-def flush_workspace_mirror(mirror: WorkspaceMirror | None, *, base_key: str | None = None) -> bool:
+def run_checkpoint_cycle(workspace_ref) -> tuple[bool, bool]:
+    store = get_workspace_state_store()
+    ok = flush_workspace_mirror(None, workspace_ref=workspace_ref)
+    store.clear_checkpoint_schedule(workspace_ref)
+    current = store.load_workspace_mirror(workspace_ref)
+    has_more_dirty = bool(current and mirror_has_dirty_state(current))
+    if has_more_dirty:
+        enqueue_workspace_checkpoint(workspace_ref)
+    return ok, has_more_dirty
+
+
+def flush_workspace_mirror(mirror: WorkspaceMirror | None, *, workspace_ref=None) -> bool:
     from iruka_vfs import service
     from iruka_vfs import workspace_mirror as mirror_api
 
     if runtime_state.workspace_checkpoint_session_maker is None:
         return False
 
-    client = service._get_redis_client()
-    resolved_base_key = base_key or mirror_api.workspace_base_key(mirror.tenant_key, mirror.workspace_id)
-    lock = client.lock(mirror_api.workspace_lock_key(resolved_base_key), timeout=30, blocking_timeout=1)
-    if not lock.acquire(blocking=True):
-        return False
+    store = get_workspace_state_store()
+    resolved_ref = workspace_ref or store.workspace_ref(mirror=mirror)
+    transaction = _load_checkpoint_transaction_context(store, mirror=mirror, workspace_ref=resolved_ref)
+    if transaction is None:
+        return True
+    mirror = transaction["mirror"]
+    lock = transaction["lock"]
     try:
-        if mirror is None:
-            mirror = mirror_api.load_workspace_mirror_by_base_key(client, resolved_base_key)
-            if not mirror:
-                client.srem(mirror_api.workspace_dirty_set_key(), resolved_base_key)
-                return True
         with mirror.lock:
             snapshot = _snapshot_dirty_batch_locked(mirror)
             dirty_ids = list(snapshot["dirty_ids"])
             if not dirty_ids and not bool(snapshot["session_dirty"]) and not bool(snapshot["metadata_dirty"]):
-                client.srem(mirror_api.workspace_dirty_set_key(), resolved_base_key)
+                store.clear_workspace_dirty(resolved_ref)
                 return True
 
         db = runtime_state.workspace_checkpoint_session_maker()
         try:
             remapped_ids: list[tuple[int, int]] = []
-            for payload in list(snapshot["dirty_payloads"]):
-                node_id = int(payload["node_id"])
-                if node_id > 0:
-                    mirror_api._repositories.node.update_node_content(
+            pending_payloads = [dict(item) for item in list(snapshot["dirty_payloads"])]
+            while pending_payloads:
+                next_round: list[dict[str, object]] = []
+                progress_made = False
+                for payload in pending_payloads:
+                    parent_id = payload["parent_id"]
+                    if parent_id is not None and int(parent_id) < 0:
+                        remapped_parent_id = next(
+                            (real_id for temp_id, real_id in remapped_ids if int(temp_id) == int(parent_id)),
+                            None,
+                        )
+                        if remapped_parent_id is None:
+                            next_round.append(payload)
+                            continue
+                        payload["parent_id"] = remapped_parent_id
+
+                    progress_made = True
+                    node_id = int(payload["node_id"])
+                    if node_id > 0:
+                        mirror_api._repositories.node.update_node_content(
+                            db,
+                            node_id=node_id,
+                            tenant_key=str(snapshot["tenant_key"]),
+                            parent_id=payload["parent_id"],
+                            name=payload["name"],
+                            node_type=payload["node_type"],
+                            content_text=payload["content_text"],
+                            version_no=payload["version_no"],
+                        )
+                        service._cache_metric_inc("flush_ok")
+                        continue
+
+                    row = mirror_api._repositories.node.create_node(
                         db,
-                        node_id=node_id,
                         tenant_key=str(snapshot["tenant_key"]),
+                        workspace_id=int(snapshot["workspace_id"]),
                         parent_id=payload["parent_id"],
                         name=payload["name"],
                         node_type=payload["node_type"],
                         content_text=payload["content_text"],
                         version_no=payload["version_no"],
                     )
+                    remapped_ids.append((node_id, int(row.id)))
                     service._cache_metric_inc("flush_ok")
-                    continue
-
-                row = mirror_api._repositories.node.create_node(
-                    db,
-                    tenant_key=str(snapshot["tenant_key"]),
-                    workspace_id=int(snapshot["workspace_id"]),
-                    parent_id=payload["parent_id"],
-                    name=payload["name"],
-                    node_type=payload["node_type"],
-                    content_text=payload["content_text"],
-                    version_no=payload["version_no"],
-                )
-                remapped_ids.append((node_id, int(row.id)))
-                service._cache_metric_inc("flush_ok")
+                if not progress_made:
+                    raise ValueError("flush could not remap temporary parent ids")
+                pending_payloads = next_round
 
             if bool(snapshot["session_dirty"]):
                 mirror_api._repositories.session.update_session_cwd(
@@ -420,48 +402,32 @@ def flush_workspace_mirror(mirror: WorkspaceMirror | None, *, base_key: str | No
                     metadata_json=dict(snapshot["workspace_metadata"]),
                 )
             db.commit()
-            runtime_seed = service._get_registered_runtime_seed(int(snapshot["workspace_id"]), str(snapshot["tenant_key"]))
-            primary_file = runtime_seed.primary_file if runtime_seed else None
-            chapter_path = str(dict(snapshot["workspace_metadata"]).get("virtual_chapter_file") or "")
-            if (
-                primary_file is not None
-                and isinstance(primary_file, WritableFileSource)
-                and primary_file.virtual_path == chapter_path
-                and primary_file.write_text is not None
-            ):
-                chapter_node_id = mirror.path_to_id.get(chapter_path)
-                chapter_node = mirror.nodes.get(int(chapter_node_id)) if chapter_node_id is not None else None
-                if chapter_node is not None:
-                    primary_file.write_text(str(chapter_node.content_text or ""))
         except Exception as exc:
             db.rollback()
             service._cache_metric_inc("flush_error")
-            client.set(
-                mirror_api.workspace_error_key(resolved_base_key),
-                json.dumps(
-                    {
-                        "workspace_id": int(snapshot["workspace_id"]) if "snapshot" in locals() else None,
-                        "tenant_key": str(snapshot["tenant_key"]) if "snapshot" in locals() else None,
-                        "ts": datetime.utcnow().isoformat(),
-                        "error_type": type(exc).__name__,
-                        "error_message": str(exc),
-                        "traceback": traceback.format_exc(limit=20),
-                    },
-                    ensure_ascii=False,
-                ),
+            store.set_error_payload(
+                resolved_ref,
+                {
+                    "workspace_id": int(snapshot["workspace_id"]) if "snapshot" in locals() else None,
+                    "tenant_key": str(snapshot["tenant_key"]) if "snapshot" in locals() else None,
+                    "ts": datetime.utcnow().isoformat(),
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                    "traceback": traceback.format_exc(limit=20),
+                },
             )
             return False
         try:
-            current = mirror_api.load_workspace_mirror_by_base_key(client, resolved_base_key)
+            current = store.load_workspace_mirror(resolved_ref)
             if not current:
-                client.srem(mirror_api.workspace_dirty_set_key(), resolved_base_key)
-                client.delete(mirror_api.workspace_error_key(resolved_base_key))
+                store.clear_workspace_dirty(resolved_ref)
+                store.clear_error_payload(resolved_ref)
                 return True
             with current.lock:
                 _confirm_flushed_snapshot_locked(current, snapshot=snapshot, remapped_ids=remapped_ids)
                 mirror_api.set_workspace_mirror(current)
-                client.delete(mirror_api.workspace_error_key(resolved_base_key))
-                _clear_checkpoint_failure_state(client, resolved_base_key)
+                store.clear_error_payload(resolved_ref)
+                _clear_checkpoint_failure_state(resolved_ref)
         finally:
             db.close()
     finally:
@@ -470,3 +436,22 @@ def flush_workspace_mirror(mirror: WorkspaceMirror | None, *, base_key: str | No
         except Exception:
             pass
     return True
+
+
+def _load_checkpoint_transaction_context(store, *, mirror: WorkspaceMirror | None, workspace_ref):
+    current = mirror if mirror is not None else store.load_workspace_mirror(workspace_ref)
+    if not current:
+        store.clear_workspace_dirty(workspace_ref)
+        return None
+    lock = store.workspace_lock(mirror=current, workspace_ref=workspace_ref)
+    if not lock.acquire(blocking=True):
+        return None
+    current = store.load_workspace_mirror(workspace_ref)
+    if not current:
+        try:
+            lock.release()
+        except Exception:
+            pass
+        store.clear_workspace_dirty(workspace_ref)
+        return None
+    return {"mirror": current, "lock": lock}

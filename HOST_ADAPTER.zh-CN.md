@@ -13,14 +13,26 @@
 
 宿主适配层的职责，是把宿主业务对象翻译成 VFS 能理解的 workspace 输入。
 
+## 当前包结构
+
+这轮重构后，宿主接入可以按下面几层理解：
+
+- 对外包入口：`iruka_vfs/__init__.py`、`iruka_vfs/workspace.py`
+- workspace handle 和工厂：`iruka_vfs/sdk/`
+- 编排入口：`iruka_vfs/service_ops/`
+- 执行细节：`iruka_vfs/runtime/`
+- workspace 状态内部实现：`iruka_vfs/mirror/`、`iruka_vfs/cache/`、`iruka_vfs/pathing/`、`iruka_vfs/sqlalchemy_repo/`
+
+像 `iruka_vfs/service.py`、`iruka_vfs/workspace_mirror.py` 这样的旧模块仍然存在，
+但主要作用是兼容历史 import 路径，不建议继续作为新实现的归宿。
+
 ## 接入职责
 
 宿主适配层应当：
 
 1. 解析 `tenant_id`、`runtime_key`、源记录 id 等宿主上下文
 2. 为一个 agent 构建一个 workspace 对象
-3. 把一个可写宿主文件映射成 workspace 的 `primary_file`
-4. 把只读 context / skill 数据映射成 `context_files` 和 `skill_files`
+3. 把宿主内容物化到 `workspace_files`
 5. 在执行命令前调用 `workspace.ensure(db)`
 6. 对每条虚拟命令调用 `workspace.bash(db, "...")`
 7. 在 turn 结束或其他明确的持久化边界调用 `workspace.flush()`
@@ -30,28 +42,27 @@
 ## 推荐 API
 
 ```python
-from iruka_vfs import WritableFileSource, create_workspace
+from iruka_vfs import build_workspace_seed, create_workspace
 
 workspace = create_workspace(
     workspace=workspace_model,
     tenant_id=str(workspace_model.tenant_id),
-    runtime_key=str(workspace_model.runtime_key),
-    primary_file=WritableFileSource(
-        file_id=f"document:{document.id}",
-        virtual_path=f"/workspace/files/document_{document.id}.md",
-        read_text=lambda: document.body_text,
-        write_text=lambda text: save_document_body(document.id, text),
+    workspace_seed=build_workspace_seed(
+        runtime_key=str(workspace_model.runtime_key),
+        tenant_id=str(workspace_model.tenant_id),
+        workspace_files={
+            f"/workspace/files/document_{document.id}.md": document.body_text,
+            "/workspace/docs/brief.md": initial_brief_text,
+            "/workspace/docs/outline.md": outline_text,
+            "/workspace/docs/style.md": style_text,
+        },
     ),
-    workspace_files={
-        "/workspace/docs/brief.md": initial_brief_text,
-        "notes/host_seed.txt": "seeded by host adapter\n",
-    },
-    context_files={"outline.md": outline_text},
-    skill_files={"style.md": style_text},
 )
 
 workspace.ensure(db)
-workspace.write_file(db, "/workspace/docs/generated.md", "from host adapter")
+conflict = workspace.write_file(db, "/workspace/docs/generated.md", "from host adapter")
+if conflict.get("conflict"):
+    workspace.write_file(db, "/workspace/docs/generated.md", "from host adapter", overwrite=True)
 brief_text = workspace.read_file(db, "/workspace/docs/brief.md")
 doc_files = workspace.read_directory(db, "/workspace/docs")
 workspace.enter_agent_mode(db)
@@ -60,7 +71,39 @@ workspace.enter_host_mode(db)
 workspace.flush()
 ```
 
+`workspace.ensure(db)` 也是 host 路径准备后续 `workspace.flush()` 所需 checkpoint 持久化前置条件的时机。
+同一个 workspace handle 还会绑定它第一次看到的真实持久层目标。请求级 session 可以变化，但后续不应再把这个 handle 指向另一套数据库。
+
 `RuntimeSeed` 仍然存在于内部实现中，但对宿主侧推荐直接使用 workspace facade。
+
+## Agent 调用链
+
+宿主侧正常的执行路径是：
+
+```text
+create_workspace(...)
+  -> sdk.workspace_factory.create_workspace_handle(...)
+  -> VirtualWorkspace
+
+workspace.ensure(db)
+  -> service.ensure_virtual_workspace(...)
+  -> service_ops.bootstrap.ensure_virtual_workspace(...)
+
+workspace.bash(db, "...")
+  -> service.run_virtual_bash(...)
+  -> integrations.agent.shell.run_virtual_bash(...)
+  -> mirror.mutation.execute_workspace_mirror_transaction(...)
+  -> runtime.executor.run_command_chain(...)
+
+workspace.flush()
+  -> service.flush_workspace(...)
+  -> service_ops.file_api.flush_workspace(...)
+  -> mirror.checkpoint.resolve_workspace_ref_for_flush(...)
+  -> mirror.checkpoint.run_checkpoint_cycle(...)
+  -> mirror.checkpoint.flush_workspace_mirror(...)
+```
+
+宿主适配层应尽量只依赖 workspace 对外方法，除非你确实需要介入更底层的实现细节。
 
 ## 生命周期约束
 
@@ -75,6 +118,10 @@ workspace.flush()
 - 调用 `workspace.bash(db, "...")` 之前先切到 `agent` 模式
 - 需要宿主直接读写文件前，先切回 `host` 模式
 - 把 `workspace.flush()` 作为显式的持久化动作
+- 在 Redis profile 下，把 Redis 视为运行态唯一事实来源，把进程内 mirror 对象视为事务内的临时工作对象
+- 把覆盖也视为显式确认动作：宿主写入用 `workspace.write_file(..., overwrite=True)`，shell redirect 用 `>|`
+- 如果要依赖 host 路径的 `workspace.flush()` 落库，先确保已经执行过一次 `workspace.ensure(db)`，因为它会准备 checkpoint 持久化路径
+- 同一个 workspace handle 的持久层目标要保持稳定，不要跨不同数据库复用同一个 handle
 
 这样可以在复用 Redis workspace 状态的同时，避免 stale session 和跨请求运行时对象带来的问题。
 
@@ -83,9 +130,8 @@ workspace.flush()
 典型文档场景下的映射关系：
 
 - host conversation/request -> 选择 runtime / workspace
-- host document/resource -> 一个可写 VFS 文件，例如 `/workspace/files/document_123.md`
-- host project state -> `/workspace/context/*.md`
-- host skills -> `/workspace/skills/*.md`
+- host document/resource -> 一个 VFS 文件，例如 `/workspace/files/document_123.md`
+- host project state -> `/workspace/docs/...` 下的辅助文件
 
 ## 最小输入要求
 
@@ -94,13 +140,7 @@ workspace.flush()
 - `workspace`
 - `runtime_key`
 - `tenant_id`
-- `primary_file`
-
-通常 `primary_file` 应使用 `WritableFileSource`，并提供：
-
-- `virtual_path`
-- `read_text()`
-- `write_text(text)`
+- `workspace_seed`
 
 ## 实践建议
 
@@ -108,7 +148,7 @@ workspace.flush()
 
 - workspace 查找
 - `create_workspace(...)` 构造
-- context / skill 文件映射
+- `workspace_files` 构造
 - turn 结束时的 `flush()`
 
 业务层只调用 adapter，不直接拼底层参数。

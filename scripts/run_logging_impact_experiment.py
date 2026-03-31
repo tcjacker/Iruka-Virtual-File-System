@@ -166,12 +166,10 @@ def run_single_scenario(config: ScenarioConfig, repeat_index: int) -> dict[str, 
     started_at = datetime.now(UTC)
     tenant_root = f"logexp_{config.name}_{started_at.strftime('%Y%m%dT%H%M%SZ')}_r{repeat_index}"
     chapter_text = module.render_size_target(64 * 1024, marker_count=256)
-    context_files = {
-        "outline.md": "# Outline\n\nbenchmark marker\n" * 16,
-        "facts.md": "benchmark marker facts\n" * 32,
-    }
-    skill_files = {
-        "style.md": "# Style\n\nKeep benchmark marker intact.\n",
+    workspace_files = {
+        "/workspace/docs/outline.md": "# Outline\n\nbenchmark marker\n" * 16,
+        "/workspace/docs/facts.md": "benchmark marker facts\n" * 32,
+        "/workspace/docs/style.md": "# Style\n\nKeep benchmark marker intact.\n",
     }
 
     primary_workspace = module.prepare_workspace(
@@ -180,8 +178,7 @@ def run_single_scenario(config: ScenarioConfig, repeat_index: int) -> dict[str, 
         runtime_key=f"{tenant_root}:primary",
         file_index=1,
         chapter_text=chapter_text,
-        context_files=context_files,
-        skill_files=skill_files,
+        workspace_files=workspace_files,
     )
 
     for _ in range(1):
@@ -202,8 +199,7 @@ def run_single_scenario(config: ScenarioConfig, repeat_index: int) -> dict[str, 
             runtime_key=f"{tenant_root}:worker:{i}",
             file_index=i + 1,
             chapter_text=chapter_text,
-            context_files=context_files,
-            skill_files=skill_files,
+            workspace_files=workspace_files,
         )
         for i in range(2)
     ]

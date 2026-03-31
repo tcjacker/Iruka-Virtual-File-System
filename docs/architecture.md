@@ -2,6 +2,66 @@
 
 This document describes the current module layout after the package refactor.
 
+## Repository Tree
+
+```text
+iruka_vfs/
+  __init__.py
+  workspace.py
+  service.py
+  sdk/
+    workspace_factory.py
+    workspace_handle.py
+  service_ops/
+    access_mode.py
+    bootstrap.py
+    file_api.py
+    state.py
+  runtime/
+    executor.py
+    fs_commands.py
+    editing.py
+    filesystem.py
+    search.py
+    logging_support.py
+  mirror/
+    context.py
+    keys.py
+    indexing.py
+    serialization.py
+    checkpoint.py
+  pathing/
+    resolution.py
+    utils.py
+  cache/
+    ops.py
+    worker.py
+  sqlalchemy_repo/
+    build.py
+    session.py
+    workspace.py
+    node.py
+    command_log.py
+  models.py
+  repositories.py
+  dependencies.py
+  dependency_resolution.py
+  runtime_seed.py
+  file_sources.py
+  sqlalchemy_models.py
+  configuration.py
+  profile_setup.py
+  in_memory_repositories.py
+  pgsql_repositories.py
+  workspace_state_store.py
+  workspace_state_serialization.py
+  command_runtime.py
+  memory_cache.py
+  paths.py
+  sqlalchemy_repositories.py
+  workspace_mirror.py
+```
+
 ## Layer Overview
 
 ```text
@@ -54,6 +114,10 @@ Implementation Layers
 - `sqlalchemy_repo/`
   Owns SQLAlchemy-backed repository implementations.
 
+- top-level infrastructure modules
+  Own shared configuration and contracts such as dependency injection, repository selection,
+  runtime profiles, file source bindings, and workspace-state backend selection.
+
 ## Dependency Direction
 
 Preferred dependency direction is:
@@ -88,6 +152,48 @@ Stable host-facing entry points are:
 - `workspace.read_directory(db, path, recursive=True)`
 - `workspace.flush()`
 
+## Call Flow
+
+The preferred host integration starts at the package root and then moves through the
+workspace handle.
+
+### `create_workspace(...)`
+
+```text
+iruka_vfs.create_workspace(...)
+  -> iruka_vfs.workspace.create_workspace
+  -> iruka_vfs.sdk.workspace_factory.create_workspace_handle(...)
+  -> returns iruka_vfs.sdk.workspace_handle.VirtualWorkspace
+```
+
+### `workspace.bash(db, "...")`
+
+```text
+VirtualWorkspace.bash(...)
+  -> iruka_vfs.service.run_virtual_bash(...)
+  -> iruka_vfs.integrations.agent.shell.run_virtual_bash(...)
+  -> iruka_vfs.mirror.mutation.execute_workspace_mirror_transaction(...)
+  -> iruka_vfs.service_ops.access_mode.workspace_access_mode_for_runtime(...)
+  -> iruka_vfs.service_ops.bootstrap.ensure_virtual_workspace(...)   # when needed
+  -> iruka_vfs.runtime.executor.run_command_chain(...)
+  -> iruka_vfs.runtime.executor.run_single_command(...)
+  -> iruka_vfs.runtime.fs_commands / editing / search / filesystem
+  -> iruka_vfs.service_ops.state.enqueue_virtual_command_log(...)
+```
+
+### `workspace.flush()`
+
+```text
+VirtualWorkspace.flush()
+  -> iruka_vfs.service.flush_workspace(...)
+  -> iruka_vfs.service_ops.file_api.flush_workspace(...)
+  -> iruka_vfs.mirror.checkpoint.resolve_workspace_ref_for_flush(...)
+  -> iruka_vfs.mirror.checkpoint.run_checkpoint_cycle(...)
+  -> iruka_vfs.mirror.checkpoint.flush_workspace_mirror(...)
+  -> iruka_vfs.mirror.serialization / indexing / context helpers
+  -> iruka_vfs.sqlalchemy_repo.* or another selected repository backend
+```
+
 ## Compatibility Policy
 
 The following modules still exist mainly for backward compatibility:
@@ -99,5 +205,8 @@ The following modules still exist mainly for backward compatibility:
 - `iruka_vfs/command_runtime.py`
 - `iruka_vfs/workspace_mirror.py`
 - `iruka_vfs/runtime/command_handlers.py`
+
+These files are compatibility facades, not new implementation homes. They keep older
+imports working after the refactor by re-exporting symbols from the new subpackages.
 
 New code should prefer the subpackage implementations directly unless the public facade is the intentional integration surface.

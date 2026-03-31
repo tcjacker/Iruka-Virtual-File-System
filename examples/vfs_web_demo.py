@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import shlex
 import sys
@@ -23,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from iruka_vfs import WritableFileSource, create_workspace
+from iruka_vfs import build_workspace_seed, create_workspace
 from iruka_vfs.dependencies import VFSDependencies, configure_vfs_dependencies
 
 
@@ -88,10 +89,6 @@ class DemoShellCommand(Base):
     artifacts_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     ended_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-
-class DemoChapter:
-    pass
 
 
 @dataclass
@@ -197,14 +194,15 @@ class MutableText:
 
 
 class DemoApp:
-    def __init__(self, db_url: str) -> None:
+    def __init__(self, db_url: str, *, runtime_profile: str = "persistent") -> None:
         self.db_url = db_url
+        self.runtime_profile = runtime_profile
         self.html_path = REPO_ROOT / "examples" / "static" / "vfs_web_demo.html"
         self.lock = threading.RLock()
+        self.engine = None
         self.session_local: sessionmaker
         self.workspace_row: DemoWorkspace | None = None
         self.workspace_handle: Any | None = None
-        self.chapter_store: MutableText | None = None
         self.redis_client: InMemoryRedis | None = None
         self.tenant_id = "demo-ui"
         self.runtime_counter = 0
@@ -216,28 +214,39 @@ class DemoApp:
             VFSDependencies(
                 settings=DemoSettings(database_url=self.db_url),
                 AgentWorkspace=DemoWorkspace,
-                Chapter=DemoChapter,
                 VirtualFileNode=DemoFileNode,
                 VirtualShellCommand=DemoShellCommand,
                 VirtualShellSession=DemoShellSession,
                 load_project_state_payload=lambda *args, **kwargs: {},
+                runtime_profile=self.runtime_profile,
             )
         )
+        for module_name in (
+            "iruka_vfs.dependency_resolution",
+            "iruka_vfs.service_ops.state",
+            "iruka_vfs.service_ops.bootstrap",
+            "iruka_vfs.service_ops.access_mode",
+            "iruka_vfs.workspace_mirror",
+            "iruka_vfs.service",
+        ):
+            importlib.reload(importlib.import_module(module_name))
         from iruka_vfs import service as vfs_service
         from iruka_vfs import workspace_mirror as vfs_workspace_mirror
 
         vfs_service.ASYNC_COMMAND_LOGGING = False
         vfs_service._ensure_workspace_checkpoint_worker_api = lambda engine: None
-        vfs_workspace_mirror.enqueue_workspace_checkpoint = lambda base_key, **kwargs: None
+        vfs_workspace_mirror.enqueue_workspace_checkpoint = lambda *args, **kwargs: None
         self.redis_client = InMemoryRedis()
         vfs_service._redis_client = self.redis_client
+        if self.engine is not None:
+            self.engine.dispose()
         engine_kwargs: dict[str, Any] = {"future": True}
         if self.db_url.startswith("sqlite"):
             engine_kwargs["connect_args"] = {"check_same_thread": False}
-        engine = create_engine(self.db_url, **engine_kwargs)
-        Base.metadata.create_all(bind=engine)
+        self.engine = create_engine(self.db_url, **engine_kwargs)
+        Base.metadata.create_all(bind=self.engine)
         self.session_local = sessionmaker(
-            bind=engine,
+            bind=self.engine,
             autoflush=False,
             autocommit=False,
             expire_on_commit=False,
@@ -255,6 +264,7 @@ class DemoApp:
     def _clear_demo_runtime_state(self) -> None:
         from iruka_vfs import runtime_state
         from iruka_vfs import service as vfs_service
+        from iruka_vfs.service_ops import state as service_state
         from iruka_vfs import workspace_mirror as vfs_workspace_mirror
 
         if self.workspace_row is not None:
@@ -275,20 +285,34 @@ class DemoApp:
                 for key, value in runtime_state.runtime_seeds.items()
                 if str(key[0]) != self.tenant_id
             }
-        with vfs_service._workspace_cache_lock:
-            vfs_service._workspace_cache.clear()
+        runtime_state.workspace_state_store = None
+        runtime_state.vfs_repositories = None
+        runtime_state.local_workspace_mirrors.clear()
+        runtime_state.local_workspace_indexes.clear()
+        runtime_state.local_workspace_locks.clear()
+        runtime_state.local_checkpoint_queue.clear()
+        runtime_state.local_checkpoint_enqueued.clear()
+        runtime_state.local_dirty_workspaces.clear()
+        runtime_state.local_checkpoint_due_at.clear()
+        runtime_state.local_workspace_errors.clear()
+        runtime_state.local_dead_letter_workspaces.clear()
+        runtime_state.local_dead_letter_payloads.clear()
+        runtime_state.local_retry_counts.clear()
+        with service_state._workspace_cache_lock:
+            service_state._workspace_cache.clear()
         vfs_workspace_mirror.set_active_workspace_mirror(None)
         vfs_workspace_mirror.set_active_workspace_tenant(None)
         vfs_workspace_mirror.set_active_workspace_scope(None)
 
-    def reset_workspace(self) -> dict[str, Any]:
+    def reset_workspace(self, *, runtime_profile: str | None = None) -> dict[str, Any]:
         with self.lock:
+            next_profile = str(runtime_profile or self.runtime_profile or "persistent")
+            if next_profile != self.runtime_profile:
+                self.runtime_profile = next_profile
+                self._configure_runtime()
             self._clear_demo_runtime_state()
             self._clear_demo_rows()
             self.runtime_counter += 1
-            self.chapter_store = MutableText(
-                "Scene opening.\nThe editor is live.\nMARKER_000\nMARKER_001\n"
-            )
             with self.session_local() as db:
                 workspace_row = DemoWorkspace(
                     tenant_id=self.tenant_id,
@@ -304,21 +328,15 @@ class DemoApp:
                 self.workspace_handle = create_workspace(
                     workspace=workspace_row,
                     tenant_id=self.tenant_id,
-                    runtime_key=f"web-demo:{workspace_row.id}:{self.runtime_counter}",
-                    primary_file=WritableFileSource(
-                        file_id="chapter:1",
-                        virtual_path="/workspace/chapters/chapter_1.md",
-                        read_text=self.chapter_store.read,
-                        write_text=self.chapter_store.write,
-                        metadata={"source_type": "web-demo"},
+                    workspace_seed=build_workspace_seed(
+                        runtime_key=f"web-demo:{workspace_row.id}:{self.runtime_counter}",
+                        tenant_id=self.tenant_id,
+                        workspace_files={
+                            "/workspace/files/demo_file.md": "Scene opening.\nThe editor is live.\nMARKER_000\nMARKER_001\n",
+                            "/workspace/docs/outline.md": "# Outline\n\n- Verify bash edits\n- Inspect tree\n",
+                            "/workspace/docs/style.md": "# Style\n\nKeep edits local and deterministic.\n",
+                        },
                     ),
-                    context_files={
-                        "outline.md": "# Outline\n\n- Verify bash edits\n- Inspect tree\n",
-                        "notes.md": "Use /workspace/notes for scratch files.\n",
-                    },
-                    skill_files={
-                        "style.md": "# Style\n\nKeep edits local and deterministic.\n",
-                    },
                 )
                 self.workspace_handle.ensure(db, include_tree=False)
                 self.workspace_handle.enter_agent_mode(db)
@@ -541,10 +559,12 @@ class DemoApp:
             return payload
 
     def get_state(self) -> dict[str, Any]:
+        from iruka_vfs.dependency_resolution import resolve_repository_backend, resolve_vfs_repositories, resolve_workspace_state_backend
         from iruka_vfs.memory_cache import snapshot_virtual_fs_cache_metrics
+        from iruka_vfs.service_ops.state import get_workspace_state_store
         from iruka_vfs.workspace_mirror import snapshot_workspace_checkpoint_metrics
 
-        if self.workspace_handle is None or self.workspace_row is None or self.chapter_store is None:
+        if self.workspace_handle is None or self.workspace_row is None:
             raise RuntimeError("workspace is not initialized")
         with self.lock:
             with self.session_local() as db:
@@ -557,6 +577,8 @@ class DemoApp:
                         .limit(12)
                     ).all()
                 )
+            repositories = resolve_vfs_repositories()
+            state_store = get_workspace_state_store()
             recent_payload = [
                 {
                     "id": int(item.id),
@@ -569,9 +591,17 @@ class DemoApp:
             return {
                 "workspace_id": int(self.workspace_row.id),
                 "runtime_key": str(self.workspace_row.runtime_key),
-                "chapter_file": str(snapshot.get("chapter_file") or ""),
+                "runtime_profile": str(self.runtime_profile),
+                "available_runtime_profiles": ["persistent", "ephemeral-local", "ephemeral-redis"],
+                "workspace_state_backend": str(resolve_workspace_state_backend()),
+                "repository_backend": str(resolve_repository_backend()),
+                "workspace_state_store_class": type(state_store).__name__,
+                "workspace_repository_class": type(repositories.workspace).__name__,
+                "session_repository_class": type(repositories.session).__name__,
+                "node_repository_class": type(repositories.node).__name__,
+                "command_log_repository_class": type(repositories.command_log).__name__,
                 "tree": str(snapshot.get("tree") or ""),
-                "host_text": self.chapter_store.read(),
+                "demo_file_text": self.workspace_handle.read_file(db, "/workspace/files/demo_file.md"),
                 "cache_metrics": snapshot_virtual_fs_cache_metrics(),
                 "checkpoint_metrics": snapshot_workspace_checkpoint_metrics(),
                 "recent_commands": recent_payload,
@@ -606,7 +636,7 @@ class DemoRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(self.app.flush())
                 return
             if path == "/api/reset":
-                self._send_json(self.app.reset_workspace())
+                self._send_json(self.app.reset_workspace(runtime_profile=body.get("runtime_profile")))
                 return
             self._send_json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
         except Exception as exc:
@@ -648,12 +678,18 @@ def parse_args() -> argparse.Namespace:
         default="sqlite+pysqlite:////tmp/iruka_vfs_web_demo.sqlite",
         help="SQLAlchemy database URL. Defaults to a local SQLite file.",
     )
+    parser.add_argument(
+        "--runtime-profile",
+        default="persistent",
+        choices=["persistent", "ephemeral-local", "ephemeral-redis"],
+        help="Runtime profile for the demo workspace.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    app = DemoApp(db_url=args.db_url)
+    app = DemoApp(db_url=args.db_url, runtime_profile=args.runtime_profile)
     server = ThreadingHTTPServer((args.host, args.port), DemoRequestHandler)
     server.app = app  # type: ignore[attr-defined]
     print(f"Serving iruka_vfs demo at http://{args.host}:{args.port}")

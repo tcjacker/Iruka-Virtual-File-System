@@ -10,7 +10,13 @@ from iruka_vfs.command_parser import parse_options as _parse_options
 from iruka_vfs.models import VirtualCommandResult
 
 
-def exec_edit(db: Session, session, args: list[str]) -> VirtualCommandResult:
+def _usage_example(command: str) -> str:
+    if command == "edit":
+        return "edit /workspace/file.txt --find old --replace new"
+    return "patch --path /workspace/file.txt --find old --replace new"
+
+
+def exec_edit(db: Session, session, args: list[str], *, input_text: str = "") -> VirtualCommandResult:
     from iruka_vfs import service
 
     if not args:
@@ -21,18 +27,30 @@ def exec_edit(db: Session, session, args: list[str]) -> VirtualCommandResult:
     find_text = opts.get("--find")
     replace_text = opts.get("--replace")
     replace_all = "--all" in opts["flags"]
-    if find_text is None or replace_text is None:
-        return VirtualCommandResult("", "edit: require --find and --replace", 1, {})
-
     node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, path)
     if not node or node.node_type != "file":
-        return VirtualCommandResult("", f"edit: file not found: {path}", 1, {})
+        return VirtualCommandResult("", service._format_missing_path_error("edit", path, db=db, session=session), 1, {})
     node_path = service._node_path(db, node)
     allowed, deny_reason = service._allow_write_path(db, session, node_path)
     if not allowed:
         return VirtualCommandResult("", f"edit: {deny_reason}", 1, {"path": node_path})
 
     before = service._get_node_content(db, node)
+    if find_text is None or replace_text is None:
+        if input_text:
+            version_no = service._write_file(db, node, input_text, op="edit_rewrite")
+            return VirtualCommandResult(
+                f"rewrote {node_path} from heredoc -> version {version_no}",
+                "",
+                0,
+                {"path": node_path, "version": version_no, "rewrite_mode": "heredoc"},
+            )
+        return VirtualCommandResult(
+            "",
+            f"edit: require --find and --replace, or provide heredoc input for a full rewrite. Example: {_usage_example('edit')}",
+            1,
+            {},
+        )
     if find_text not in before:
         return VirtualCommandResult("", "edit: target text not found", 1, {"path": node_path})
 
@@ -52,7 +70,7 @@ def exec_edit(db: Session, session, args: list[str]) -> VirtualCommandResult:
     )
 
 
-def exec_patch(db: Session, session, args: list[str]) -> VirtualCommandResult:
+def exec_patch(db: Session, session, args: list[str], *, input_text: str = "") -> VirtualCommandResult:
     from iruka_vfs import service
 
     if args and args[0] == "apply":
@@ -60,17 +78,22 @@ def exec_patch(db: Session, session, args: list[str]) -> VirtualCommandResult:
     opts = _parse_options(args)
     path = opts.get("--path")
     if not path:
-        return VirtualCommandResult("", "patch: require --path", 1, {})
+        return VirtualCommandResult(
+            "",
+            "patch: require --path. Example: patch --path /workspace/file.txt --find old --replace new",
+            1,
+            {},
+        )
 
     node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, path)
     if not node or node.node_type != "file":
-        return VirtualCommandResult("", f"patch: file not found: {path}", 1, {})
+        return VirtualCommandResult("", service._format_missing_path_error("patch", path, db=db, session=session), 1, {})
     node_path = service._node_path(db, node)
     allowed, deny_reason = service._allow_write_path(db, session, node_path)
     if not allowed:
         return VirtualCommandResult("", f"patch: {deny_reason}", 1, {"path": node_path})
 
-    unified = opts.get("--unified")
+    unified = opts.get("--unified") or (input_text if input_text else None)
     find_text = opts.get("--find")
     replace_text = opts.get("--replace")
     before = service._get_node_content(db, node)
@@ -94,7 +117,14 @@ def exec_patch(db: Session, session, args: list[str]) -> VirtualCommandResult:
         )
 
     if find_text is None or replace_text is None:
-        return VirtualCommandResult("", "patch: require either --unified or (--find and --replace)", 1, {})
+        return VirtualCommandResult(
+            "",
+            "patch: require either --unified, heredoc diff input, or (--find and --replace). "
+            "Examples: patch --path /workspace/file.txt --unified '@@ -1,1 +1,1 @@ ...' "
+            "or patch --path /workspace/file.txt --find old --replace new",
+            1,
+            {},
+        )
     if find_text not in before:
         return VirtualCommandResult("", "patch: target text not found", 1, {})
 

@@ -7,7 +7,11 @@ from tests.support import DummyWorkspace, configure_test_dependencies
 
 configure_test_dependencies()
 
-from iruka_vfs.service_ops.access_mode import assert_workspace_access_mode, workspace_access_mode_for_runtime
+from iruka_vfs.service_ops.access_mode import (
+    assert_workspace_access_mode,
+    assert_workspace_readable,
+    workspace_access_mode_for_runtime,
+)
 from iruka_vfs.service_ops.bootstrap import workspace_access_mode_from_metadata
 
 
@@ -31,6 +35,15 @@ class ServiceOpsAccessModeTest(unittest.TestCase):
                     tenant_key="tenant-a",
                     required_mode="agent",
                 )
+
+    def test_assert_workspace_readable_allows_agent_mode(self) -> None:
+        workspace = DummyWorkspace(id=10, tenant_id="tenant-a", metadata_json={"virtual_access_mode": "agent"})
+        with patch("iruka_vfs.service_ops.access_mode.get_workspace_mirror", return_value=None):
+            mode = assert_workspace_readable(
+                workspace,
+                tenant_key="tenant-a",
+            )
+        self.assertEqual(mode, "agent")
 
 
 if __name__ == "__main__":
