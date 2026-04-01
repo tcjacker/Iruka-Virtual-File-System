@@ -178,10 +178,16 @@ The virtual shell is intentionally small. Current supported commands are:
   Use `find /workspace -name brief.md` when you know the filename but not the path
 - `rg`
   `rg -c TODO /workspace/docs` returns per-file match counts
+  `rg -n TODO /workspace/docs/a.md` returns matching lines with line numbers
 - `grep`
   `grep -l TODO /workspace` returns matching file paths
   `grep -c TODO /workspace/docs` returns per-file match counts
+  `grep -n TODO /workspace/docs/a.md` returns matching lines with line numbers
   `grep -v .git` is useful for filtering stdin path lists
+- `status`
+  Returns the currently tracked `changed_paths`, `pending_verification_paths`, `verified_paths`, and `possible_missing_targets`
+- `verify`
+  Without arguments it automatically reads back the current pending verification files; explicit paths also work
 - `wc -l`
 - `mkdir`
 - `touch`
@@ -196,7 +202,9 @@ The virtual shell is intentionally small. Current supported commands are:
 - `basename`
 - `dirname`
 - `edit`
+  Supports `edit /workspace/file <<'EOF' ... EOF` for full rewrites of an existing file
 - `patch`
+  Supports `patch --path /workspace/file <<'EOF' ... EOF` for unified diff heredoc input
 - `tree`
 - `xargs`
   Supported in a limited form such as `find ... | xargs grep -l TODO`
@@ -211,13 +219,15 @@ Recommended agent bootstrap prompt:
 You are in a virtual workspace, not a full OS shell.
 
 Use workspace.bash(db, "...") with only these commands:
-pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, xargs, echo, help
+pwd, cd, ls, cat, find, rg, grep, status, verify, wc -l, mkdir, touch, edit, patch, tree, xargs, echo, help
 Also available: cp, mv, rm, sort, basename, dirname
 Use `ls -l` when you need type/size/version/mtime.
 When you know the filename but not the path, start with `find /workspace -name <name>`.
 When the path is unknown, prefer: `find /workspace -name <name>` -> `cat` -> `edit` / `patch`.
 When you need file-path-only content matches, prefer `grep -l <pattern> /workspace`.
 When you need per-file match counts, prefer `grep -c <pattern> <path>` or `rg -c <pattern> <path>`.
+When you need line-numbered matches, prefer `grep -n <pattern> <path>`.
+Before finishing a multi-file task, you can run `status` first and then `verify` or `cat` for readback.
 When you want a safe ignore-on-failure fallback, only use `|| true`, `|| :`, or `|| help`.
 
 Write rules:
@@ -227,6 +237,8 @@ Write rules:
 - once you have confirmed an existing target file, prefer `>|` directly for rewrites
 - >> appends
 - for multi-line file creation, you may use: cat <<'EOF' > /workspace/file ... EOF
+- `edit` / `patch` also accept a single heredoc input
+- a single raw command must not chain multiple heredoc write blocks; split them with `;` or `&&`
 - `2>/dev/null` is supported in a limited form
 - do not generate real-shell extras such as: general `||`, <, <<<, 1>, general 2>, &>, $(...), `...`
 
@@ -263,11 +275,25 @@ When parsing fails, the result also includes `artifacts["parse_error"]` with a s
 }
 ```
 
+Another common recovery case looks like this:
+
+```json
+{
+  "kind": "multiple_heredoc_write_blocks",
+  "summary": "multiple heredoc write blocks in a single raw command are not supported.",
+  "message": "parse error: multiple heredoc write blocks in a single raw command are not supported. Split them into two commands with `;` or `&&`. Template: `cat <<'EOF' >| /workspace/a ... EOF ; cat <<'EOF' >| /workspace/b ... EOF`",
+  "suggestion": "Split them into two commands with `;` or `&&`.",
+  "example": "Template: `cat <<'EOF' >| /workspace/a ... EOF ; cat <<'EOF' >| /workspace/b ... EOF`"
+}
+```
+
 For multi-file tasks, prefer this workflow:
 
 - read target files first
 - make edits
+- optionally run `status`
 - inspect `task_guidance["verification"]["pending_verification_paths"]`
+- or run `verify`
 - run the suggested `cat ...` readback before finishing
 - reuse `modified_paths` or `task_guidance["verification"]["changed_paths"]` in the final answer
 
@@ -345,6 +371,7 @@ Overwrite confirmation rules:
 - shell redirect `>` follows the same rule and fails on existing files
 - shell redirect `>|` is the explicit overwrite form
 - limited heredoc is supported for stdin-style multi-line writes such as `cat <<'EOF' > /workspace/file ... EOF`
+- `edit` / `patch` also accept a single heredoc input, but one raw command must not chain multiple heredoc write blocks
 - `help` prints the current shell surface and these write rules inside the agent runtime
 
 ### 4.8 Runtime Transaction Semantics

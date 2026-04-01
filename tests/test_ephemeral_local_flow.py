@@ -51,7 +51,6 @@ class EphemeralLocalFlowTest(unittest.TestCase):
         _reload("iruka_vfs.runtime.fs_commands")
         _reload("iruka_vfs.runtime.search")
         _reload("iruka_vfs.runtime")
-        _reload("iruka_vfs.command_runtime")
         _reload("iruka_vfs.integrations.agent.shell")
         self.bootstrap = _reload("iruka_vfs.service_ops.bootstrap")
         self.access_mode = _reload("iruka_vfs.service_ops.access_mode")

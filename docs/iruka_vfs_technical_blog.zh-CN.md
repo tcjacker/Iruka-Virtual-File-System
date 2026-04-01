@@ -1,532 +1,484 @@
-# 基于 `iruka_vfs` 的 Agent 虚拟文件系统设计与实现
+今天，我把 Iruka Virtual File System 公开出来。这是基于前两篇文章的思想设计的一个纯粹面向 Agent 使用的虚拟文件系统。
 
-## 一、为什么要做一个 Agent 专用的 VFS Runtime
+`iruka_vfs` 的核心目标很直接：
 
-在很多 AI Agent 场景里，模型并不只是“生成一段文本”，而是在一个持续存在的工作空间里完成一系列操作：
+给 Agent 一个受控、可恢复、可闭环的文件工作区，让模型能像使用文件系统一样完成真实任务，而不是在一堆彼此割裂的工具 API 之间来回跳转。
 
-- 读取当前工作文件内容
-- 查看宿主注入的参考资料
-- 执行 `cat`、`ls`、`grep`、`edit`、`patch` 等命令
-- 在多轮交互中维持 `cwd`、文件树和编辑状态
-- 在合适的时机把结果回写到宿主系统
+如果一个系统想把文件操作真正交给 Agent，它迟早都要回答下面这些问题：
 
-如果直接让 Agent 面对真实宿主文件系统，会立刻遇到几个问题：
+- 数据该以什么形态暴露给 Agent
+- Agent 应该如何探索上下文
+- 写入应该如何约束
+- 多步任务要怎样闭环
+- 失败之后怎样恢复，而不是停在半路
 
-1. 宿主业务模型和运行时文件系统语义混在一起，边界不清晰。
-2. 多轮执行缺少稳定的工作区快照，难以复用上下文。
-3. 每次命令都直读直写数据库，延迟高，而且难做缓存。
-4. 写入失败、并发冲突、回放和审计都不好处理。
+很多团队最先采用的，通常是更直接的方案：给 Agent 一组 `tool calls`，例如 `read_file`、`write_file`、`search_docs`、`update_record`。这种方式当然能完成一部分任务，但它很难替代一个真正的文件系统交互面：
 
-`iruka_vfs` 的设计目标，就是把这些能力沉淀成一个独立的运行时层。它不关心宿主业务里的 `Conversation`、`Project` 之类对象到底长什么样，只关心一件事：给 Agent 一个可控、可持久化、可缓存、可显式 flush 的虚拟工作区。
+> 文件工作流并不天然适合被拆成一堆彼此孤立的 API。
 
-从代码结构上看，这个项目把能力边界收得很窄：
+原因并不复杂。真实 Agent 在处理文件任务时，往往不是“知道应该调用哪个工具”，而是在逐步理解环境、形成判断、再决定下一步动作。它的工作方式更像：
 
-- 入口和对外 API 在 `iruka_vfs/workspace.py`
-- 核心运行时在 `iruka_vfs/service.py`
-- 命令解析和执行分别在 `iruka_vfs/command_parser.py`、`iruka_vfs/command_runtime.py`
-- 运行时镜像和 checkpoint 机制在 `iruka_vfs/workspace_mirror.py`
-- 热路径文件内容缓存位于 `iruka_vfs/memory_cache.py`
+1. 我先看看这里有什么文件
+2. 我再读几个候选上下文
+3. 我大概知道该改哪里了
+4. 我改完以后再核对一下
+5. 我最后确认是不是所有目标都处理完了
 
-这意味着宿主系统只需要注入依赖，并把需要暴露给 agent 的内容映射成 `workspace_files`，就能把自己的业务对象挂接到这套 VFS 上。
+这是一条持续探索和修正的链路，不是一串预先写死的 API 调用图。
 
-## 二、整体定位：它不是 OS 文件系统，而是 Agent 的执行沙箱
+如果系统只是提供一组离散工具，很容易出现两个问题：
 
-`iruka_vfs` 提供的不是一个 POSIX 兼容文件系统，也不是 FUSE 挂载，而是一个面向 Agent 命令执行的“虚拟工作空间运行时”。
+- Agent 能“做动作”，但很难形成稳定的空间感知和上下文连续性
+- 宿主需要为每一种新任务预先设计新的 API，而不是让 Agent 自己在环境里完成探索
 
-它的基本模型可以概括成：
+这也是为什么，到了文件工作流这一层，`tool use` 往往不如“给模型一个受控文件系统”来得自然。
 
-```text
-Host Models / Workspace Files
-        |
-        v
- RuntimeSeed + Dependency Injection
-        |
-        v
-  Virtual Workspace Tree
-        |
-        +--> command parser
-        +--> command runtime
-        +--> workspace mirror
-        +--> memory cache
-        +--> checkpoint / flush
-        |
-        v
- DB / Redis
-```
+`iruka_vfs` 正是围绕这个判断设计出来的。
 
-这里最关键的点有两个：
+文件系统的价值不只是“能存文件”，而是它天然提供了 Agent 最需要的几种认知结构：
 
-1. 它把宿主侧需要暴露给 agent 的文件统一映射进虚拟目录树，例如 `/workspace/files/...`、`/workspace/docs/...`。
-2. 它把“命令执行态”从数据库里抽出来，优先落在运行时镜像和缓存里，再通过显式 `flush()` 或后台 checkpoint 回写。
+- 路径和目录，帮助 Agent 建立空间感
+- 文件名和层级，帮助 Agent 缩小搜索范围
+- 读、写、搜索、覆盖这些统一动作，帮助 Agent 用一致方式操作不同对象
+- 一个持续存在的工作区，帮助 Agent 把多步任务当成同一轮工作流来完成
 
-这种设计非常适合以下场景：
+随之而来的第二个问题是：如果要给 Agent 一个文件系统，为什么还要保留 bash 这层交互，而不是继续把所有动作包装成更细的 API？
 
-- 章节编辑、文档改写、代码补丁等以“文件”为中心的 Agent 工作流
-- 需要多轮复用工作区状态的交互式任务
-- 需要可审计命令日志，但又不希望命令执行完全绑定数据库延迟的场景
+因为 Agent 使用 bash 命令，很多时候并不是“背过了命令列表”，而是基于理解在行动。
 
-## 三、对外 API 很轻，但背后的运行时并不轻
+模型未必精确记得某个系统暴露了哪些专用工具，但它通常理解这些意图：
 
-项目对外暴露的 API 非常克制，核心入口只有两个。
+- 我需要找一下名字像 `brief.md` 的文件
+- 我需要读前几行确认内容
+- 我需要搜一下哪些文件提到了某个词
+- 我需要把这段内容覆盖写进去
 
-第一步，宿主系统配置依赖：
+而 bash 风格命令恰好给了它一种非常自然的表达层：
 
-```python
-from iruka_vfs import build_profile_dependencies, configure_vfs_dependencies
+不是提前记住每个能力对应哪个专用 API，而是把“我想怎么探索、怎么查看、怎么修改”直接表达出来。
 
-configure_vfs_dependencies(
-    build_profile_dependencies(
-        settings=...,
-        runtime_profile="persistent",
-    )
-)
-```
+这也是为什么真实模型会自然写出：
 
-第二步，基于宿主工作区对象创建一个可复用句柄：
+- `find /workspace -name '*.md'`
+- `head -20 /workspace/docs/brief.md`
+- `grep -n TODO /workspace/docs/notes.md`
+- `cat <<'EOF' >| /workspace/output.md`
 
-```python
-from iruka_vfs import build_workspace_seed, create_workspace
+它们背后反映的不是“模型知道你恰好实现了这些命令”，而是：
 
-workspace = create_workspace(
-    workspace=workspace_row,
-    tenant_id="demo",
-    workspace_seed=build_workspace_seed(
-        runtime_key="workspace:1",
-        tenant_id="demo",
-        workspace_files={
-        "/workspace/files/document_1.md": load_text(),
-        "/workspace/docs/brief.md": "# Brief\n\nSeeded from Python.\n",
-        "/workspace/docs/todo.txt": "- inspect outline\n",
-        "/workspace/docs/outline.md": outline_text,
-        "/workspace/docs/index.md": skill_text,
-        },
-    ),
-)
-```
+> 模型理解这类环境应该怎样被使用。
 
-随后宿主侧通常围绕几类动作展开：
+所以真正的问题就不再是“有没有 `cat`、`edit`、`patch`”，而是：
 
-- `workspace.ensure(db)`：准备虚拟工作区
-- `workspace.write_file(db, path, content)`：通过 Python 直接写虚拟文件
-- `workspace.read_file(db, path)`：通过 Python 直接读单个虚拟文件
-- `workspace.read_directory(db, path)`：批量读取某个目录下的文件内容
-- `workspace.enter_agent_mode(db)` / `workspace.enter_host_mode(db)`：切换 workspace 控制权
-- `workspace.bash(db, "...")`：执行一条虚拟 shell 命令
-- `workspace.flush()`：在明确的持久化边界回写
+> 系统有没有为 Agent 提供一套既贴近这种理解方式、又具备清晰边界的文件工作流语义。
 
-这套接口轻量的原因，在于它把复杂度都藏到了 `RuntimeSeed` 和依赖注入下面。
+`iruka_vfs` 想解决的，正是这个问题。
 
-### 3.1 RuntimeSeed：把宿主上下文投影到虚拟工作区
+它不是一个通用 POSIX 文件系统，也不是一个把宿主目录简单映射给模型的包装器。更准确地说，`iruka_vfs` 是一个面向 Agent 文件任务设计的 Virtual File System：它给模型提供受控工作区、有限但高价值的 bash 风格命令、清晰的写入边界，以及围绕恢复、验证和闭环组织起来的运行时语义。
 
-`RuntimeSeed` 定义在 `iruka_vfs/runtime_seed.py`，用于描述一次工作区初始化所需的最小信息：
+围绕 `iruka_vfs`，有三个问题最值得展开：
 
-- `runtime_key`：运行时身份
-- `tenant_id`：租户隔离键
-- `workspace_files`：初始化时批量注入到 `/workspace/...` 下的文件
-- `metadata`：扩展元数据
+1. 为什么 Agent 文件工作需要一个 Virtual File System，而不是一组零散工具
+2. `iruka_vfs` 是如何把文件系统、bash 交互和任务闭环组合起来的
+3. 从真实多模型实测看，这套设计为什么是有效的
 
-这套模型非常实用，因为它没有要求宿主必须把所有业务对象都转换成数据库节点；只有真正需要暴露给 Agent 的内容，才会被投影进虚拟目录树。
+## 一、从工具集合到工作流 Runtime，需要补上的是什么
 
-## 四、核心流程：`ensure -> (python file api | bash) -> flush`
+前面的问题并不在于 `read_file` 或 `write_file` 这类能力本身不重要，而在于：当任务进入多步文件工作流后，系统不能再只提供若干离散动作，还必须提供一组稳定的运行时语义。
 
-这个项目的主线并不复杂，但设计得很完整。按执行顺序看，最关键的是三个阶段。
+对 Agent 来说，真正关键的不是“能不能调用某个工具”，而是下面这些问题是否有统一答案：
 
-## 五、`ensure`：把宿主状态构造成 Agent 可操作的虚拟目录树
+- 它如何建立对工作区的空间感知
+- 它如何逐步缩小目标文件范围
+- 它写入之后如何知道哪些文件已经处理、哪些还没核对
+- 它遇到不支持的写法时，系统是直接中断，还是能给出可恢复路径
+- 它在一轮连续操作里产生的状态，是否会被 Runtime 持续保留
 
-`workspace.ensure(db)` 最终会进入 `iruka_vfs/service.py` 里的 `ensure_virtual_workspace()`。
+也就是说，当任务从“单文件修改”升级成“文件工作流”时，系统设计的重点就不再是增加多少个 API，而是是否具备以下三类能力：
 
-这个过程大致做了以下几件事：
+1. 可探索的工作区
+2. 可恢复的命令交互
+3. 可闭环的任务状态
 
-1. 校验 workspace 的租户归属。
-2. 注册 `RuntimeSeed`，建立当前 workspace 的运行时上下文。
-3. 创建根目录以及初始化需要的父目录，例如 `/workspace`、`/workspace/files`、`/workspace/docs`。
-4. 把 `workspace_files` 同步到虚拟节点表。
-5. 更新 workspace 元数据，例如虚拟主文件路径、可写根目录、上下文文件列表等。
-6. 创建或获取 shell session。
-7. 基于数据库中的所有节点构建一份 `WorkspaceMirror`。
+这也是 `iruka_vfs` 的真正设计目标：
 
-从博客读者视角，最值得注意的是它创建的是稳定的虚拟目录树。也就是说，Agent 不需要知道宿主业务里“正文”“参考资料”“辅助文件”分别来自哪里，它只会看到一棵统一的树：
+它不是把文件操作包装成几个工具，而是把 Agent 的文件任务组织进一个可持续推进的 Virtual File System 工作区。
+
+## 二、`iruka_vfs` 这个 Virtual File System，设计上至少要坚持三件事
+
+### 1. 把宿主内容收敛成稳定工作区，而不是直接暴露业务对象
+
+宿主系统里当然可能有 `Conversation`、`Task`、`Document`、`Project`。
+
+但对 Agent 来说，最稳定的抽象并不是这些业务对象，而是文件和目录。
+
+所以 `iruka_vfs` 的第一原则不是“先设计命令”，而是先把宿主内容投影成统一工作区：
 
 ```text
-/workspace
-  /files
-  /docs
-  /runtime
+/workspace/docs/...
+/workspace/files/...
+/workspace/src/...
 ```
 
-这比把宿主概念直接暴露给模型更稳，因为模型面对的是统一文件语义，而不是业务对象语义。
+这样做的意义只有一个：让 Agent 从一开始就工作在一个稳定、连续、可探索的空间里，而不是在一堆异构 API 之间来回切换。
 
-## 六、workspace 现在有显式的 `host / agent` 访问模式
+### 2. 命令面保持克制，但要贴近模型的自然表达
 
-这次接口演进里，最重要的变化不是新增了几个方法，而是明确了 workspace 的控制权模型。
+`iruka_vfs` 不追求完整 bash 兼容。它做的是另一种取舍：
 
-当前实现把 workspace 分成两种互斥模式：
+只保留最有价值的文件工作流命令，同时吸收少量模型确实会自然写出来的高频习惯。
 
-- `host` 模式：允许宿主通过 Python API 直接读写文件
-- `agent` 模式：允许 Agent 通过 `workspace.bash(...)` 操作工作区
+所以它追求的不是“大而全”，而是三件事：
 
-默认情况下，`workspace.ensure(db)` 完成后 workspace 处于 `host` 模式。要把它交给 Agent，宿主需要显式调用：
+- Agent 能找、读、搜、改、核对
+- 这些动作尽量沿着 bash 风格自然表达
+- 高频边界写法要么被稳定支持，要么被稳定拒绝并给出恢复路径
 
-```python
-workspace.enter_agent_mode(db)
+目标不是“像 shell 一样什么都能做”，而是“让模型以最自然的方式完成文件工作流”。
+
+### 3. Runtime 必须显式建模恢复与闭环
+
+如果系统只负责“把命令执行掉”，那它最多只是一个受限 shell。
+
+而 Agent 真正需要的，是系统能继续回答下面这些问题：
+
+- 路径猜错以后，下一步该怎么改
+- 写法越界以后，应该如何重写
+- 改了哪些文件，哪些还没核对
+- 当前任务是不是已经闭环
+
+这也是为什么 `iruka_vfs` 后来会逐步补上结构化路径信号、`parse_error`、`task_guidance`、`verification_hint`、`status` 和 `verify`。
+
+这些能力的共同作用只有一个：
+
+让 Runtime 不只是“执行命令”，而是“帮助 Agent 把这轮文件任务做完”。
+
+## 三、Agent 实际是怎么和 `iruka_vfs` 交互的
+
+对 `iruka_vfs` 而言，真正重要的不是内部模块名称，而是 Agent 实际会经历怎样一轮工作流。
+
+宿主侧当然会先准备工作区、切换运行时模式、管理 flush 时机，但这些都不应该成为 Agent 需要理解的内容。
+
+对 Agent 来说，更真实的交互流程其实很简单：
+
+```text
+看到当前工作区线索
+  -> 发出一条 bash 风格命令
+  -> 收到命令结果 + 路径/恢复/闭环提示
+  -> 再决定下一步命令
+  -> 在完成前做 readback 或 verify
 ```
 
-Agent 使用完成后，如果宿主还要直接读写文件，则需要切回：
+也就是说，Agent 并不是在调用一串生命周期 API，而是在一个持续存在的工作区里循环执行“观察 -> 操作 -> 判断 -> 再操作”。
 
-```python
-workspace.enter_host_mode(db)
+### 起点：宿主准备工作区，Agent 只面对稳定目录树
+
+Agent 不需要知道宿主内部有哪些业务对象，也不需要知道底层是如何 seed、如何 flush、如何做持久化的。
+
+对 Agent 来说，关键只是：它面对的是一个已经准备好的 `/workspace`，后面的动作都围绕这棵目录树展开。
+
+这也是为什么 `iruka_vfs` 强调把宿主内容投影成统一工作区，而不是让模型直接操作宿主领域对象。
+
+### 主循环：Agent 通过 `workspace.bash(db, "...")` 持续推进任务
+
+真正的交互入口，是反复调用 `workspace.bash(db, "...")`。
+
+`workspace.bash(db, "...")` 并不会把命令直接转发给真实 shell。它走的是自己的 parser 和 executor，因此每次调用不只是“执行命令”，还会顺带把工作流上下文返回给 Agent。
+
+Agent 每次调用 `workspace.bash(db, "...")`，拿到的并不只是传统 shell 意义上的 `stdout` / `stderr`。
+
+它实际收到的是一个结构化返回值：里面既有命令执行结果，也有 Runtime 额外附带的交互信号。
+
+可以把它理解成：
+
+```text
+{
+  stdout,
+  stderr,
+  exit_code,
+  ...,
+  workspace_bootstrap,
+  workspace_outline,
+  unique_filename_index,
+  path_shortcuts,
+  discovery_hint,
+  task_guidance,
+  verification_hint,
+  artifacts,
+}
 ```
 
-这个改造的意义在于把“宿主侧文件操作”和“Agent 命令执行”变成阶段性互斥关系，而不是共享同一份可变运行时状态。这样更符合这套 runtime 当前的 workspace 级锁模型，也更容易定义 `flush()` 的边界。
+也就是说，Agent 不是“从终端滚动文本里自己猜出下一步”，而是在每次工具调用返回后，显式读取这些字段，再决定接下来发什么命令。
 
-## 七、除了 `bash`，宿主现在也可以直接通过 Python API 管理文件
+Agent 每次拿到的，通常包括几类信息：
 
-这个项目最初更偏向“给 Agent 一个 shell 风格工作区”，但从宿主接入体验看，仅有 `workspace.bash(...)` 其实还不够顺手。很多场景下，宿主需要在不经过命令解释器的情况下直接做三件事：
+- 命令本身的 `stdout` / `stderr`
+- 写入、覆盖、搜索等执行 `artifacts`
+- 路径引导信息
+- 当前任务的闭环状态
 
-- 初始化一批文件和目录
-- 往某个虚拟路径直接写内容
-- 批量读取某个目录下的文件内容
+也就是说，Agent 和 Runtime 的交互并不是单向的“发一条命令，收一个字符串”，而更像下面这个循环：
 
-现在这套能力已经直接暴露在 workspace facade 上：
+1. Agent 先看 `workspace_bootstrap`、`unique_filename_index`、`path_shortcuts`
+2. 决定接下来该 `find`、`cat` 还是直接 `edit`
+3. 如果路径猜错，Runtime 返回可恢复的 exact retry
+4. 如果写法越界，Runtime 返回结构化 `parse_error` 和最短改写模板
+5. 如果改了多个文件，Runtime 继续返回 `task_guidance`、`verification_hint`
+6. Agent 再据此决定是否 `status`、`verify` 或回读具体路径
 
-```python
-workspace = create_workspace(
-    workspace=workspace_row,
-    tenant_id="demo",
-    workspace_seed=build_workspace_seed(
-        runtime_key="workspace:1",
-        tenant_id="demo",
-        workspace_files={
-        "/workspace/files/document_1.md": "# Draft",
-        "/workspace/docs/brief.md": "# Brief",
-        "/workspace/docs/todo.txt": "- host seeded",
-        },
-    ),
-)
+这一点很关键。
 
-workspace.ensure(db)
-workspace.write_file(db, "/workspace/docs/generated.md", "hello")
-brief = workspace.read_file(db, "/workspace/docs/brief.md")
-docs = workspace.read_directory(db, "/workspace/docs")
-workspace.enter_agent_mode(db)
+很多系统给 Agent 的其实只有“命令结果”，而 `iruka_vfs` 现在更像是在每一步都把“下一步该怎么继续”也一起交还给 Agent。
+
+这也是为什么路径恢复、多文件闭环、parse recovery 能真正改善实测结果：
+
+它们不是附加文案，而是进入了交互循环本身。
+
+在真实使用里，这条主循环之所以能跑顺，靠的就是下面三类补充信号。
+
+### 3.1 路径发现：尽量让模型不需要猜
+
+在早期评测里，`path_confusion` 是最稳定的高频问题。
+
+模型会先猜 `/workspace/foo.md`，然后再靠报错恢复到 `/workspace/docs/foo.md`。
+
+当前 `iruka_vfs` 对这类问题的处理，不再只是依赖通用错误消息，而是把路径发现前置成一组结构化信号。它们不是普通终端输出，而是 `workspace.bash(...)` 返回结果里的字段：
+
+- `workspace_bootstrap`
+- `workspace_outline`
+- `unique_filename_index`
+- `path_shortcuts`
+- `discovery_hint`
+
+Agent 会在每次调用返回后读取这些字段，再决定下一步动作。其中最关键的是两项：
+
+- `unique_filename_index`
+  当 basename 唯一时，直接给出精确路径
+- `path_shortcuts`
+  直接返回可执行的快捷命令，例如 `brief.md -> cat /workspace/docs/brief.md`
+
+这会把路径发现从“先试错再修复”变成“带索引的探索”。
+
+### 3.2 任务闭环：把“我是不是做完了”做成运行时能力
+
+在长链路任务里，模型经常会出现一种非常典型的失败：
+
+1. 读了多个目标文件
+2. 修改了其中一部分
+3. 中间因为一次覆盖冲突或复杂写法偏航
+4. 最后没有回到剩余目标文件
+5. 却在回答里汇报“都完成了”
+
+如果系统只是执行命令，这类问题几乎无法稳定处理。
+
+所以 `iruka_vfs` 现在把任务闭环显式化了：
+
+- `changed_paths`
+- `pending_verification_paths`
+- `verified_paths`
+- `possible_missing_targets`
+- `suggested_readback`
+
+这让 Runtime 可以直接表达：
+
+- 哪些文件已经改了
+- 哪些文件还没核对
+- 哪些可能是遗漏目标
+- 下一步最短的 readback 动作是什么
+
+对 Agent 系统来说，这种显式状态比再加一个提示字符串更重要。
+
+### 3.3 错误恢复：复杂写法宁可清晰拒绝，也不要模糊兼容
+
+一个很能说明问题的例子，是多 heredoc 写入块。
+
+在真实 GPT-5.4 评测里，模型会自然写出这样的命令：
+
+```bash
+cat <<'EOF' >| /workspace/src/pricing.py
+...
+EOF
+cat <<'EOF' >| /workspace/docs/bugfix.md
+...
+EOF
 ```
 
-这组 API 的设计有几个特点：
+这类写法最危险的地方在于：
 
-1. `workspace_files` 支持初始化时批量注入文件，父目录自动创建。
-2. 相对路径会自动挂到 `/workspace` 下。
-3. 路径不允许越出 `/workspace` 根目录。
-4. `read_directory(...)` 返回 `{virtual_path: content}` 映射，适合宿主侧做批处理。
+如果系统半支持它，就可能出现“第一段执行了，第二段没执行，但整体仍然返回成功”。
 
-这样一来，宿主就有两条并行能力：
+这比“完全不支持”更糟，因为它会制造部分执行和虚假完成。
 
-- 用 `workspace.bash(...)` 给 Agent 一个受控 shell 运行时
-- 用 Python facade 直接做宿主侧文件读写
+所以 `iruka_vfs` 最后的策略不是“尽量兼容”，而是：
 
-但这两条能力不是并行开放，而是通过 `host / agent` 模式切换来交接控制权。这比把所有文件动作都包装成命令字符串更实用，也更适合业务系统接入。
+- 明确拒绝单条 raw command 里的多个 heredoc 写入块
+- 明确告诉模型要拆成两条命令
+- 直接给出可复制的改写模板
 
-## 八、`bash`：不是调用系统 shell，而是执行一套受控命令运行时
+这个选择后来被定向实测验证了：
 
-`workspace.bash(db, raw_cmd)` 会进入 `run_virtual_bash()`，再走到 `iruka_vfs/command_runtime.py`。
+- 明确拒绝前，GPT-5.4 的 long-horizon 任务会出现部分执行和误报完成
+- 明确拒绝后，结果层面恢复到 100% success
+- 把错误模板进一步缩短后，过程层面也提升到了 100% clean
 
-这里有一个非常重要的设计选择：项目并没有把命令转发给真实 bash，而是实现了一套受控的命令解释器。
+这个结果很说明问题：
 
-当前支持的命令包括：
+> 对 Agent 来说，边界清晰的失败，往往比模糊的兼容更有价值。
 
-- `pwd`
-- `cd`
-- `ls`
-- `cat`
-- `find`
-- `rg` / `grep`
-- `wc`
-- `mkdir`
-- `edit`
-- `patch`
-- `tree`
-- `xargs`
-- `echo`
-- `touch`
+从能力边界上说，`workspace.bash(db, "...")` 可以控制：
 
-它还支持基础 shell 语义：
+- 允许哪些命令
+- 允许哪些语法
+- 哪些路径可以写
+- 覆盖语义是什么
+- 错误如何恢复
+- `artifacts` 如何返回
 
-- `&&`
-- `;`
-- `|`
-- `>`
-- `>>`
-- `2>&1`
+这也是 Agent Runtime 和“给模型一个 shell”之间最本质的区别。
 
-这意味着 Agent 获得的是一个“足够像 shell”的编辑环境，但所有读写都被限制在虚拟文件树内部。这样做有几个明显好处：
+### Agent 关心的是闭环，`flush()` 由宿主决定
 
-1. 可控。不会误碰宿主真实文件系统。
-2. 可审计。每条命令都可以记录结构化结果。
-3. 可扩展。新增命令只需要补 runtime 分发逻辑。
-4. 可优化。命令执行天然可以对接 mirror 和 cache。
+从 Agent 视角看，它并不需要理解 `flush()` 什么时候发生。
 
-### 6.1 命令解析层足够小，但覆盖了 Agent 常用需求
+它真正关心的是：这轮任务有没有完成，哪些文件还要核对，是否需要再执行一次 `verify` 或 `cat`。
 
-`iruka_vfs/command_parser.py` 做的事情很朴素：
+而 `flush()` 属于宿主侧的 durability 决策。把这件事留在宿主一侧，反而能让 Agent 的交互模型保持简单：
 
-- `split_chain()` 负责解析 `&&` 和 `;`
-- `parse_pipeline_and_redirect()` 负责解析管道和重定向
-- `shell_tokens()` 用 `shlex` 做基础 tokenization
-- `parse_options()` 解析 `--find`、`--replace` 这类长选项
+它只需要专注于把当前工作区里的任务做完。
 
-它不是完整 shell parser，但它恰好覆盖了 Agent 文本编辑工作流里最常见的语法。这种克制是合理的，因为目标不是做一个 shell，而是做一个面向 Agent 的运行时。
+## 四、`iruka_vfs` 的底层数据持久化
 
-### 6.2 `edit` 和 `patch` 才是这个系统的核心命令
+继续往工程实现下看，`iruka_vfs` 当然有 parser、executor、workspace mirror、持久化层和路径索引这些模块。
 
-从实现上看，`edit` 和 `patch` 是最关键的写入能力。
+但对理解它为什么有效来说，底层并不需要展开成一份模块说明书。
 
-`edit` 的行为是：
+更重要的只有三件事。
 
-- 定位目标文件
-- 校验路径是否允许写入
-- 读取文件当前内容
-- 基于 `--find` / `--replace` 做一次或全量替换
-- 调用 `_write_file()` 推进版本号并写入运行时态
+第一，它在运行时维护一个可快速操作的工作区镜像。
 
-`patch` 则支持两种方式：
+这意味着 Agent 在一轮任务里连续执行 `find`、`cat`、`edit`、`verify` 这类小步操作时，不必每一步都回到重持久化路径。
 
-- 简单的 `find/replace`
-- 统一 diff 形式的 `--unified`
+第二，它把 `flush` 做成明确边界，而不是隐含行为。
 
-它内部还实现了一个轻量级 unified diff 应用器 `_apply_unified_patch()`，会检查上下文行、删除行和新增行是否匹配，并在失败时返回冲突信息。对 Agent 系统来说，这一点很关键，因为它能把“补丁失败”变成一个结构化反馈，而不是一段含糊的异常文本。
+这样宿主可以决定什么时候把运行时状态刷回持久化层，Agent 则只需要专注于把当前工作区里的任务做完整。
 
-## 九、真正的性能关键：`WorkspaceMirror`
+第三，它保留了清晰的 host / agent 控制边界。
 
-如果只把这套系统理解成“数据库里存一棵虚拟文件树”，那就低估了它。
+宿主负责 seed、权限、持久化和生命周期管理；Agent 负责在受控命令面里完成文件工作流。两侧职责越清楚，Runtime 的行为就越稳定。
 
-这个项目最有价值的实现，其实是 `WorkspaceMirror`。
+如果把文章重点放在模块划分上，读者会更容易把 `iruka_vfs` 理解成一个“文件系统实现细节集合”。
 
-### 7.1 什么是 WorkspaceMirror
+但从真实使用看，它更值得被理解成一个面向 Agent 文件工作的 Virtual File System：文件系统抽象是表层，恢复、闭环和边界控制才是它真正的价值。
 
-`WorkspaceMirror` 定义在 `iruka_vfs/models.py`，本质上是一份工作区在运行时内存中的完整镜像，包含：
+## 五、真实多模型评测，验证了哪些设计是有效的
 
-- 当前 workspace、session 标识
-- 所有节点的克隆副本 `nodes`
-- 路径索引 `path_to_id`
-- 父子关系索引 `children_by_parent`
-- 当前 `cwd_node_id`
-- workspace 元数据
-- revision / checkpoint_revision
-- dirty content / dirty structure / dirty session 标记
-- 一把进程内 `RLock`
+从最近几轮多模型实测来看，`iruka_vfs` 其实已经证明了一件更重要的事：
 
-这个设计说明作者已经明确把“数据库状态”和“运行时热状态”区分开了。
+把文件操作交给主流 LLM 来完成，本身已经不是问题。
 
-数据库负责持久化和恢复，mirror 负责命令执行时的低延迟读写。
+也就是说，当前这套 Runtime 已经能够稳定承接“找文件、读上下文、修改内容、回读确认、汇报路径”这类典型文件工作流。
 
-### 7.2 为什么要镜像而不是直接操作 ORM 实体
+现在剩下的主要不是“能不能做”，而是“做得够不够顺”。
 
-原因很直接：
+这也是为什么后续观察里，更有价值的往往不是最终结果本身，而是 clean rate 这类过程指标。它反映的不是“最后有没有做对”，而是模型在这套 Runtime 里完成任务时是否足够顺手。
 
-1. ORM 对象适合事务提交，不适合高频命令态读写。
-2. 路径解析、目录遍历、内容读取都是热点操作，直接打数据库成本高。
-3. Agent 命令执行天然是“局部高频、周期 flush”的模式，适合先写内存态。
-4. 需要把“文件树结构变更”和“内容变更”显式标脏，便于后续 checkpoint。
+而从现阶段的残余问题看，最主要的摩擦已经收敛到了两类：
 
-`build_workspace_mirror()` 的实现也很说明问题：它先把整棵工作区节点读出，再逐个 clone，然后重建路径和 children 索引。这基本就是把数据库里的工作区加载成一个可快速查询、可局部变更的内存模型。
+- 路径发现仍然会有少量试探和恢复成本
+- 个别复杂写法仍然需要 Runtime 给出更强的恢复提示
 
-## 十、写路径设计：先写 mirror，再 checkpoint / flush
+### 1. `iruka_vfs` 已经跨过“能不能用”的阶段
 
-`_write_file()` 很能体现这个系统的取舍。
+`iruka_vfs` 已经跨过了“能不能用”的阶段，进入了“能不能稳定承载高频文件工作流”的阶段。一次本地压测中，我们用约 64 KB 文档模拟真实 workspace，分别测量 `cat`、`wc`、`rg`、写入、`edit` 和 `flush`。结果显示，这些核心 VFS 操作的平均耗时都在 1.8 到 3.5 ms 之间，p95 大多落在 4 到 6 ms。
 
-如果当前 workspace 已经加载了 mirror，那么写入逻辑是：
+在 8 个 workspace 并发、总计 192 条命令的情况下，整体吞吐仍可达到约 654.6 commands/s，并发命令 p95 仅 13.72 ms。
 
-1. 在 mirror 中找到目标节点
-2. 直接修改 `content_text`
-3. `version_no + 1`
-4. 标记 `dirty_content_node_ids`
-5. 推进 `revision`
+换句话说，VFS 这一层的 I/O 开销已经足够小，小到通常不会成为 Agent 回合总时长的主导因素。
 
-也就是说，命令执行时的大部分写操作并不会立刻落库。
+### 2. 不同模型表现不一
 
-只有在以下情况才会走其他路径：
+在测试中，Gemini 3 表现是最好的。操作结果不仅正确，过程也最简洁，没有任何额外多余的操作。
 
-- 没有 mirror，且关闭了内存缓存：直接更新数据库节点
-- 没有 mirror，但启用了 memory cache：先进入文件缓存，再由后台 worker 落库
+Claude 4.6 这一侧最典型的特征是：结果通常能做对，但过程更长、恢复步数更多、tool calls 更高。
 
-这说明项目实际上准备了两层加速路径：
+这说明对 Claude 来说，VFS 的问题不是“不够正确”，而是“还不够顺手”。
 
-- 工作区级别的整体镜像
-- 文件内容级别的局部内存缓存
+ChatGPT 5.4 则会尝试更多批操作，会被 VFS 拦截和提示后，再回归到 VFS 支持的操作上完成任务。
 
-前者更偏“完整运行时”，后者更偏“内容热缓存”。
+从任务结果来说，3 个主流模型都能完成任务。而在 bash 命令使用上则体现出了非常明显的习惯差异，这可能是各自后训练倾向性不同导致的。
 
-## 十一、Checkpoint 与 `flush()`：把运行时脏状态安全落回持久层
+这也解释了，为什么 Claude Code 在使用 ChatGPT 等其他模型时表现反而会下降。
 
-这个项目没有把 `flush` 简化成“一次数据库提交”，而是实现了比较完整的 checkpoint 机制。
+## 六、下一步
 
-### 9.1 显式 `flush()` 是宿主的持久化边界
+结合目前代码和评测结果，`iruka_vfs` 已经具备了 Agent 工作流的基本能力。
 
-`workspace.flush()` 会调用 `flush_workspace()`，再进一步走到 `flush_workspace_mirror()`。
+接下去的工作，我的规划如下：
 
-它的大体流程是：
+### 1. 继续增强 bash 交互能力，但仍然坚持“高价值、小语义面”
 
-1. 找到当前 workspace 的 mirror。
-2. 获取 workspace 级别锁。
-3. 从 mirror 中截取一批 dirty 状态快照。
-4. 把脏节点、session cwd、workspace metadata 写回数据库。
-5. 清理或重排 dirty 状态。
-6. 如果仍然有脏数据，则重新入队 checkpoint。
+这一条并不是要把 `iruka_vfs` 扩成完整 POSIX，而是继续围绕真实 Agent 轨迹补齐高频能力：
 
-这个接口的设计非常适合宿主系统在“回合结束”时调用。比如一轮 Agent 推理结束后，宿主可以把这次编辑视为一次清晰的 durability boundary，然后显式 `flush()`。
+- 继续强化长链路闭环
+- 继续压低恢复成本
+- 继续补高频、低风险的真实习惯
 
-### 9.2 后台 worker + debounce + retry + dead letter
+也就是说，bash 能力会继续增强，但增强的目标不是“更像完整 shell”，而是“更适合 Agent 完成文件工作流”。
 
-`iruka_vfs/workspace_mirror.py` 里真正有意思的是 checkpoint worker：
+### 2. 支持集群模式和独立部署
 
-- 通过 Redis 队列调度待 flush 的 workspace
-- 支持 debounce，避免高频编辑导致重复回写
-- flush 失败后按指数退避重试
-- 超过阈值进入 dead letter 集合
-- 记录错误 payload 便于排查
+如果 `iruka_vfs` 只是嵌在单个宿主进程里，它当然可以解决一类问题，但还不足以覆盖更大的系统形态。
 
-这说明作者已经把它当成一个长期运行的 runtime，而不是 demo 级别脚本。对于 Agent 系统来说，这是很重要的成熟度信号，因为一旦开始支持多轮编辑、后台执行和异步回写，失败恢复就是必要能力，不是锦上添花。
+下一阶段非常值得投入的一条线，是把它从“库内 Runtime”继续推进成“可以独立部署的 Runtime 服务”，包括：
 
-## 十二、Memory Cache：另一条更细粒度的性能优化路径
+- 支持多实例、可横向扩展的集群模式
+- 支持和宿主应用解耦的独立部署
+- 让不同 Agent 会话、不同租户、不同工作区之间的隔离与调度更清晰
 
-除了 workspace mirror，项目还在 `iruka_vfs/memory_cache.py` 中实现了文件内容缓存。
+这一步的意义在于：
 
-它的几个关键点是：
+把 `iruka_vfs` 从“本地文件工作流组件”进一步提升成“可作为基础设施复用的 Agent 文件 Runtime”。
 
-- 按 `file_id` 缓存内容和版本号
-- 维护 LRU
-- 维护 dirty 集合
-- 周期性后台 flush
-- 通过 `version_no` 做乐观更新
+### 3. 丰富对外 API，降低宿主集成成本
 
-`update_cache_after_write()` 会把写操作记成 pending versions，后台 `mem_cache_flush_worker()` 再批量尝试：
+除了 bash 交互之外，从宿主集成角度看，对外 API 的丰富度同样重要。
 
-```sql
-UPDATE virtual_file_nodes
-SET content_text = ..., version_no = ...
-WHERE id = :file_id AND version_no = :expected_version_no
-```
+接下来很值得规划的一层是，让宿主除了调用 `bash(...)` 之外，还能更方便地管理工作区生命周期和状态观察，例如：
 
-这个条件更新说明它采用了轻量级乐观并发控制。如果 DB 中版本号已经变化，就说明有冲突，worker 会记录冲突指标而不是盲写覆盖。
+- 初始化大批量文档或代码文件
+- 实时查询 workspace 状态
+- 更清晰的工作区管理 API
 
-虽然在有 workspace mirror 的路径上，memory cache 未必是主要热路径，但它让系统具备了另一种退化运行能力：即使没有完整 mirror，单文件读写也不必每次都直达数据库。
+这背后的原则其实一直没变：
 
-## 十三、数据模型设计：把“运行时对象”拆得足够清楚
+我们不是在造一个更小的 shell，而是在造一个更适合 Agent 完成文件工作的 Runtime。
 
-从 demo 里的模型可以看出，系统最核心的持久化对象只有四类：
+## 结语
 
-- `vfs_workspaces`
-- `virtual_file_nodes`
-- `virtual_shell_sessions`
-- `virtual_shell_commands`
+如果要用一句话概括 `iruka_vfs` 当前这条路线，我会这样说：
 
-这种拆分很合理：
+> 它最有价值的地方，不是把文件放进虚拟目录，而是把 Agent 的文件任务变成了一种可恢复、可验证、可闭环的运行时过程。
 
-- workspace 表示虚拟工作区本身
-- node 表示文件树节点
-- session 表示 shell 上下文，例如 cwd
-- command 表示命令日志和执行结果
+这也是为什么它值得被单独讨论。
 
-也就是说，这个系统不是“给业务表加几个字段”，而是建立了一套完整的运行时数据模型。业务系统只需要保存自己的主对象，再把需要暴露给 Agent 的内容投影进这套模型里。
+当系统开始要求模型在一个持续存在的工作区里完成真实任务时，问题就不再是“给不给工具”，而是：
 
-## 十四、依赖注入：让运行时和宿主解耦
+- 路径如何发现
+- 写入如何约束
+- 错误如何恢复
+- 任务如何闭环
+- 状态何时持久化
 
-`iruka_vfs/dependencies.py` 只有很少的代码，但地位很重要。
+这些问题本质上都属于 Runtime 设计。
 
-通过 `VFSDependencies`，宿主需要明确告诉运行时：
+而 `iruka_vfs` 这一路演进里最值得复用的经验，也恰恰不是“支持了哪些命令”，而是：
 
-- 使用哪套 settings
-- workspace / file node / shell command / shell session 对应哪些 ORM 模型
-- 如何加载项目状态
+> 在 Agent 场景里，稳定的语义边界，比宽泛的兼容范围更重要。
 
-这带来两个直接收益：
+## 项目地址
 
-1. `iruka_vfs` 可以独立演进，不绑定具体业务模型。
-2. 宿主可以替换底层 repository 或 ORM 实现，而不改命令运行时逻辑。
+Iruka Virtual File System 代码地址：
 
-从工程实践上说，这是一个很正确的切分方式。Agent runtime 应该依赖抽象边界，而不是吞掉宿主业务上下文。
+[https://github.com/tcjacker/Iruka-Virtual-File-System](https://github.com/tcjacker/Iruka-Virtual-File-System)
 
-## 十五、一个最小示例如何串起整套机制
-
-`examples/standalone_sqlite_demo.py` 是理解这个项目的最佳入口。
-
-这个示例做了几件典型事情：
-
-1. 用 SQLAlchemy 定义 demo 版 workspace、node、session、command 表。
-2. 用 `InMemoryRedis` 模拟 Redis。
-3. 创建一条宿主 workspace 记录。
-4. 用 `WritableFileSource` 把一份业务文档文本挂载到 `/workspace/files/document_1.md`。
-5. 调用：
-   - `workspace.ensure(db)`
-   - `workspace.write_file(db, ...)`
-   - `workspace.enter_agent_mode(db)`
-   - `workspace.bash(db, "cat ...")`
-   - `workspace.bash(db, "edit ...")`
-   - `workspace.enter_host_mode(db)`
-   - `workspace.flush()`
-6. 最后检查宿主文本是否被成功回写。
-
-这个 demo 很能说明 `iruka_vfs` 的真正价值：它不是为了“模拟 shell”，而是为了把宿主文件变成一个可交互、可编辑、可持久化的 Agent 工作区。
-
-## 十六、这个设计最值得借鉴的几个点
-
-如果从系统设计角度总结，我认为这个项目最值得借鉴的是下面几点。
-
-### 14.1 它先定义了运行时边界，再定义 API
-
-很多 Agent 工程会先暴露一堆工具调用接口，再在业务里拼凑状态。`iruka_vfs` 反过来，先定义工作区、session、node、mirror、flush 这些运行时对象，再暴露 `ensure/bash/flush` 这样的简洁 API。
-
-这种顺序更利于系统稳定演进。
-
-### 14.2 它把“外部文件接入”收敛成 `read_text/write_text`
-
-这是极其务实的抽象。宿主侧通常已经有自己的数据库、对象存储、权限系统，不需要 VFS 重新接管一遍。只要提供两个函数，就可以把宿主文件映射进虚拟空间。
-
-### 14.3 它承认 Agent 工作流天然需要“延迟持久化”
-
-命令执行频繁，flush 边界稀疏，这是 Agent 编辑系统的常态。mirror、memory cache、checkpoint worker 都是在服务这个事实，而不是强行把每次命令都做成同步事务。
-
-### 14.4 它在一开始就考虑了失败恢复
-
-checkpoint retry、dead letter、错误 payload、异步日志截断，这些都说明实现者没有把系统当成单机 demo，而是按真实服务组件在设计。
-
-## 十七、当前实现的边界与可以继续演进的方向
-
-当然，这套实现也有明确边界。
-
-第一，它不是完整 shell，命令集是受限的。这是优点，也是约束。如果未来要支持更复杂的命令组合、glob、环境变量替换，解析层还需要继续扩展。
-
-第二，它已经明确把 workspace 的控制权切成 `host / agent` 两种模式，并且 README 里也说明同一个 workspace 不应该并发执行 `workspace.bash(...)`。这说明当前并发模型是“单工作区串行执行 + 阶段性交接”优先，适合多数 Agent 场景，但如果以后要支持同一工作区多执行流协同，还需要更细粒度的并发控制。
-
-第三，当前主写路径依赖运行时 mirror 与后台 checkpoint。这个设计很高效，但也要求宿主能够接受“显式 flush 才算 durable”这件事。如果宿主业务需要每个命令都强持久化，那么接入策略需要调整。
-
-第四，路径权限控制目前主要围绕虚拟根目录和可写路径展开。若要面向更复杂的多角色、多文件权限体系，后续可以继续把 ACL 抽象出来。
-
-## 十八、总结：`iruka_vfs` 本质上是在给 Agent 提供一个真正可运行的工作区
-
-如果用一句话概括这个项目，我会这样描述：
-
-`iruka_vfs` 不是一个简单的虚拟文件树，而是一个面向 Agent 编辑工作流的运行时内核。
-
-它解决的不是“如何保存一棵目录树”这么简单的问题，而是下面这组更实际的工程问题：
-
-- 如何把宿主文件安全地映射成 Agent 可操作空间
-- 如何在多轮执行中维持稳定的工作区上下文
-- 如何让命令执行既像 shell，又足够可控
-- 如何把高频读写从数据库热路径中摘出来
-- 如何在性能和持久化之间建立明确边界
-
-从实现质量上看，这个仓库最有价值的部分不只是 API，而是背后的 runtime 组织方式：依赖注入、虚拟文件树、命令运行时、workspace mirror、memory cache、checkpoint worker，这些部件组合在一起，形成了一套相当完整的 Agent 文件工作区基础设施。
-
-如果你的系统正在从“调用几个工具函数”走向“让 Agent 在一个持续存在的工作区里完成复杂编辑任务”，那么这类 runtime 设计是非常值得参考的。
-
----
-
-## 附：可作为文中引用的源码位置
-
-- `iruka_vfs/workspace.py`：对外工作区句柄与 `ensure`、模式切换、`bash`、`flush`
-- `iruka_vfs/service.py`：核心服务入口、初始化、写入、flush
-- `iruka_vfs/command_parser.py`：命令链、管道、重定向解析
-- `iruka_vfs/command_runtime.py`：命令执行分发
-- `iruka_vfs/workspace_mirror.py`：运行时镜像、checkpoint worker、flush
-- `iruka_vfs/memory_cache.py`：文件内容缓存与后台刷盘
-- `examples/standalone_sqlite_demo.py`：最小可运行示例
+欢迎大家多提意见，一起持续共建。

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from iruka_vfs.dependency_resolution import resolve_vfs_repositories
 from iruka_vfs.models import WorkspaceMirror
 
 
@@ -44,9 +45,10 @@ def build_workspace_mirror(
     from iruka_vfs import workspace_mirror as mirror_api
 
     tenant_key = mirror_api.workspace_tenant_key(workspace)
-    latest_workspace = mirror_api._repositories.workspace.get_workspace(db, int(workspace.id), tenant_key)
+    repositories = resolve_vfs_repositories()
+    latest_workspace = repositories.workspace.get_workspace(db, int(workspace.id), tenant_key)
     workspace_row = latest_workspace or workspace
-    nodes = mirror_api._repositories.node.list_workspace_nodes(db, workspace.id, tenant_key)
+    nodes = repositories.node.list_workspace_nodes(db, workspace.id, tenant_key)
     cloned: dict[int, object] = {}
     for source in nodes:
         cloned_node = mirror_api.clone_node(source)

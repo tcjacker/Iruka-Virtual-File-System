@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import queue
+import sys
 import threading
 from collections import deque
 from types import SimpleNamespace
@@ -133,18 +134,22 @@ def get_redis_client() -> redis.Redis:
     settings = get_vfs_dependencies().settings
     if _redis_client is not None:
         return _redis_client
+    if runtime_state.redis_client is not None:
+        _redis_client = runtime_state.redis_client
+        return _redis_client
     try:
-        from iruka_vfs import service as vfs_service
-
-        override_client = getattr(vfs_service, "_redis_client", None)
+        service_module = sys.modules.get("iruka_vfs.service")
+        override_client = getattr(service_module, "_redis_client", None) if service_module is not None else None
         if override_client is not None:
             _redis_client = override_client
+            runtime_state.redis_client = override_client
             return _redis_client
     except Exception:
         pass
     with _redis_client_lock:
         if _redis_client is None:
             _redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+            runtime_state.redis_client = _redis_client
         return _redis_client
 
 

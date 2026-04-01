@@ -15,6 +15,7 @@ from iruka_vfs.constants import (
     VFS_CHECKPOINT_RETRY_BASE_SECONDS,
     VFS_CHECKPOINT_RETRY_MAX_SECONDS,
 )
+from iruka_vfs.dependency_resolution import resolve_vfs_repositories
 from iruka_vfs.models import WorkspaceMirror
 from iruka_vfs.service_ops.state import get_workspace_state_store
 from iruka_vfs import runtime_state
@@ -338,6 +339,7 @@ def flush_workspace_mirror(mirror: WorkspaceMirror | None, *, workspace_ref=None
 
         db = runtime_state.workspace_checkpoint_session_maker()
         try:
+            repositories = resolve_vfs_repositories()
             remapped_ids: list[tuple[int, int]] = []
             pending_payloads = [dict(item) for item in list(snapshot["dirty_payloads"])]
             while pending_payloads:
@@ -358,7 +360,7 @@ def flush_workspace_mirror(mirror: WorkspaceMirror | None, *, workspace_ref=None
                     progress_made = True
                     node_id = int(payload["node_id"])
                     if node_id > 0:
-                        mirror_api._repositories.node.update_node_content(
+                        repositories.node.update_node_content(
                             db,
                             node_id=node_id,
                             tenant_key=str(snapshot["tenant_key"]),
@@ -371,7 +373,7 @@ def flush_workspace_mirror(mirror: WorkspaceMirror | None, *, workspace_ref=None
                         service._cache_metric_inc("flush_ok")
                         continue
 
-                    row = mirror_api._repositories.node.create_node(
+                    row = repositories.node.create_node(
                         db,
                         tenant_key=str(snapshot["tenant_key"]),
                         workspace_id=int(snapshot["workspace_id"]),
@@ -388,14 +390,14 @@ def flush_workspace_mirror(mirror: WorkspaceMirror | None, *, workspace_ref=None
                 pending_payloads = next_round
 
             if bool(snapshot["session_dirty"]):
-                mirror_api._repositories.session.update_session_cwd(
+                repositories.session.update_session_cwd(
                     db,
                     session_id=int(mirror.session_id),
                     tenant_key=str(snapshot["tenant_key"]),
                     cwd_node_id=int(snapshot["cwd_node_id"]),
                 )
             if bool(snapshot["metadata_dirty"]):
-                mirror_api._repositories.workspace.update_workspace_metadata(
+                repositories.workspace.update_workspace_metadata(
                     db,
                     workspace_id=int(snapshot["workspace_id"]),
                     tenant_key=str(snapshot["tenant_key"]),

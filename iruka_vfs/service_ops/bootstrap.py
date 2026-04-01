@@ -56,7 +56,7 @@ def persistence_binding_for_db(db: Session | None) -> str:
     url = getattr(engine, "url", None)
     if url is None:
         return f"{type(engine).__name__}:{id(engine)}"
-    return str(url.render_as_string(hide_password=False))
+    return str(url.render_as_string(hide_password=True))
 
 
 def _assert_workspace_persistence_binding(db: Session | None, workspace: Any) -> str:

@@ -139,7 +139,7 @@ def load_project_state_payload(*args, **kwargs) -> dict:
 
 正式接入时，高层 profile builder 默认直接使用项目中的内部 VFS 模型定义，例如：
 
-- [sqlalchemy_models.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/sqlalchemy_models.py)
+- [sqlalchemy_models.py](../iruka_vfs/sqlalchemy_models.py)
 
 ## 4. 基础接入步骤
 
@@ -239,10 +239,16 @@ with SessionLocal() as db:
   `find /workspace -name brief.md` 可在不知道具体目录时按文件名找路径
 - `rg`
   `rg -c TODO /workspace/docs` 可按文件统计匹配次数
+  `rg -n TODO /workspace/docs/a.md` 可返回带行号的匹配结果
 - `grep`
   `grep -l TODO /workspace` 会返回包含匹配内容的文件路径
   `grep -c TODO /workspace/docs` 可按文件统计匹配次数
+  `grep -n TODO /workspace/docs/a.md` 可返回带行号的匹配结果
   `grep -v .git` 可用于过滤 stdin 路径列表
+- `status`
+  返回当前会话跟踪到的 `changed_paths`、`pending_verification_paths`、`verified_paths`、`possible_missing_targets`
+- `verify`
+  不带参数时会自动 readback 当前待核对文件；也可显式传路径
 - `wc -l`
 - `mkdir`
 - `touch`
@@ -257,7 +263,9 @@ with SessionLocal() as db:
 - `basename`
 - `dirname`
 - `edit`
+  支持 `edit /workspace/file <<'EOF' ... EOF` 形式的已有文件整文件重写
 - `patch`
+  支持 `patch --path /workspace/file <<'EOF' ... EOF` 形式的 unified diff heredoc
 - `tree`
 - `xargs`
   支持受限用法，适合 `find ... | xargs grep -l TODO`
@@ -272,13 +280,15 @@ with SessionLocal() as db:
 你当前处在虚拟 workspace 中，不是完整操作系统 shell。
 
 只能通过 workspace.bash(db, "...") 使用这些命令：
-pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, xargs, echo, help
+pwd, cd, ls, cat, find, rg, grep, status, verify, wc -l, mkdir, touch, edit, patch, tree, xargs, echo, help
 也支持：cp, mv, rm, sort, basename, dirname
 需要查看类型/大小/版本号/修改时间时，使用 `ls -l`。
 不知道文件路径但知道文件名时，优先使用 `find /workspace -name 文件名`。
 路径未知时，推荐顺序是：`find /workspace -name 文件名` -> `cat` -> `edit` / `patch`。
 需要按内容返回文件路径时，优先使用 `grep -l PATTERN /workspace`。
 需要按文件统计匹配次数时，优先使用 `grep -c PATTERN 路径` 或 `rg -c PATTERN 路径`。
+需要带行号的匹配结果时，优先使用 `grep -n PATTERN 路径`。
+多文件任务收尾前，可以先执行 `status`，再用 `verify` 或 `cat` 做 readback。
 需要安全地忽略失败时，只使用受限 fallback：`|| true`、`|| :`、`|| help`。
 
 写入规则：
@@ -288,6 +298,8 @@ pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, xargs,
 - 如果已经确认要重写已有文件，直接使用 `>|`
 - >> 表示追加
 - 多行写文件时可以使用：cat <<'EOF' > /workspace/file ... EOF
+- `edit` / `patch` 也支持单个 heredoc 输入
+- 单条 raw command 中不支持串多个 heredoc 写入块；请拆成两条命令，用 `;` 或 `&&`
 - 可使用受限尾巴：`2>/dev/null`
 - 不要生成真实 shell 扩展语法：通用 `||`、<、<<<、1>、通用 `2>`、&>、$(...)、`...`
 
@@ -324,11 +336,25 @@ pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, edit, patch, tree, xargs,
 }
 ```
 
+另一类常见恢复示例如下：
+
+```json
+{
+  "kind": "multiple_heredoc_write_blocks",
+  "summary": "multiple heredoc write blocks in a single raw command are not supported.",
+  "message": "parse error: multiple heredoc write blocks in a single raw command are not supported. Split them into two commands with `;` or `&&`. Template: `cat <<'EOF' >| /workspace/a ... EOF ; cat <<'EOF' >| /workspace/b ... EOF`",
+  "suggestion": "Split them into two commands with `;` or `&&`.",
+  "example": "Template: `cat <<'EOF' >| /workspace/a ... EOF ; cat <<'EOF' >| /workspace/b ... EOF`"
+}
+```
+
 对于多文件任务，推荐这样使用：
 
 - 先读目标文件
 - 再执行修改
+- 也可以先执行 `status`
 - 查看 `task_guidance["verification"]["pending_verification_paths"]`
+- 或直接执行 `verify`
 - 在结束前按 `suggested_readback` 再 `cat` 一次核对
 - 最终回答时优先复用 `modified_paths` 或 `task_guidance["verification"]["changed_paths"]`
 
@@ -406,6 +432,7 @@ workspace.flush()
 - shell redirect `>` 也遵循同样规则，遇到已存在文件时失败
 - shell redirect `>|` 才表示显式允许覆盖
 - 当前支持受限 heredoc，用于 stdin 风格的多行写入，例如 `cat <<'EOF' > /workspace/file ... EOF`
+- `edit` / `patch` 也支持单个 heredoc 输入，但单条 raw command 不支持串多个 heredoc 写入块
 - `help` 会在 agent 运行时打印当前支持的命令面和这些写入规则
 
 ### 4.8 运行时事务语义
@@ -621,7 +648,7 @@ with SessionLocal() as db:
 
 ## 7. 常用 API
 
-`VirtualWorkspace` 常用方法见 [workspace_handle.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/sdk/workspace_handle.py)：
+`VirtualWorkspace` 常用方法见 [workspace_handle.py](../iruka_vfs/sdk/workspace_handle.py)：
 
 - `ensure(db)`
   初始化或加载 workspace mirror
@@ -714,10 +741,10 @@ Redis 在当前架构里是 `WorkspaceStateStore` 的实现载体，不只是旁
 
 ## 11. 相关文件
 
-- [__init__.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/__init__.py)
-- [profile_setup.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/profile_setup.py)
-- [workspace_handle.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/sdk/workspace_handle.py)
-- [workspace_state_store.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/workspace_state_store.py)
-- [pgsql_repositories.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/pgsql_repositories.py)
-- [in_memory_repositories.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/in_memory_repositories.py)
-- [standalone_sqlite_demo.py](/Users/tc/ai/Iruka-Virtual-File-System/examples/standalone_sqlite_demo.py)
+- [__init__.py](../iruka_vfs/__init__.py)
+- [profile_setup.py](../iruka_vfs/profile_setup.py)
+- [workspace_handle.py](../iruka_vfs/sdk/workspace_handle.py)
+- [workspace_state_store.py](../iruka_vfs/workspace_state_store.py)
+- [pgsql_repositories.py](../iruka_vfs/pgsql_repositories.py)
+- [in_memory_repositories.py](../iruka_vfs/in_memory_repositories.py)
+- [standalone_sqlite_demo.py](../examples/standalone_sqlite_demo.py)
