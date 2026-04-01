@@ -119,7 +119,7 @@ configure_vfs_dependencies(
 
 对 host 路径来说，`workspace.ensure(db)` 也会顺带初始化 `workspace.flush()` 所需的 checkpoint 持久化前置条件。正常先执行一次 `ensure(db)` 后，宿主不需要再手工初始化 checkpoint worker 状态。
 
-虚拟 shell 现在还提供内置 `help` 命令。如果 agent 运行时忘记支持哪些能力，可以直接执行 `workspace.bash(db, "help")`，读取返回的 `stdout` 或 `artifacts["supported_commands"]`。每次 bash 返回里也会带上 `workspace_outline`、`workspace_bootstrap`、`unique_filename_index`、`path_shortcuts` 和 `discovery_hint` 用于路径发现；同时还会带上 `task_guidance`、`verification_hint`、`modified_paths` 用于长链路任务的收尾核对。解析失败时还会暴露结构化的 `artifacts["parse_error"]`。
+虚拟 shell 现在还提供内置 `help` 命令。如果 agent 运行时忘记支持哪些能力，可以直接执行 `workspace.bash(db, "help")`，读取返回的 `stdout` 或 `artifacts["supported_commands"]`。每次 bash 返回里也会带上 `workspace_outline`、`workspace_bootstrap`、`unique_filename_index`、`path_shortcuts` 和 `discovery_hint` 用于路径发现；同时还会带上 `task_guidance`、`verification_hint`、`modified_paths` 用于长链路任务的收尾核对。解析失败时还会暴露结构化的 `artifacts["parse_error"]`，其中也包含不支持的多 heredoc 写入链的改写模板。
 
 推荐给 agent 注入的最小 prompt：
 
@@ -127,11 +127,12 @@ configure_vfs_dependencies(
 你当前处在虚拟 workspace 中，不是完整操作系统 shell。
 
 只能通过 workspace.bash(db, "...") 使用这些命令：
-pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, cp, mv, rm, sort, basename, dirname, edit, patch, tree, xargs, echo, help
+pwd, cd, ls, cat, find, rg, grep, status, verify, wc -l, mkdir, touch, cp, mv, rm, sort, basename, dirname, edit, patch, tree, xargs, echo, help
 需要查看类型/大小/版本号/修改时间时，使用 `ls -l`。
 知道文件名但不知道具体路径时，先用 `find /workspace -name 文件名`。
 路径未知时，推荐顺序是：`find /workspace -name 文件名` -> `cat` -> `edit` / `patch`。
 需要按文件统计匹配次数时，优先使用 `grep -c PATTERN 路径` 或 `rg -c PATTERN 路径`。
+需要带行号的匹配结果时，优先使用 `grep -n PATTERN 路径`。
 文件管理类操作里，`cp` / `mv` 当前只支持文件，`rm` 一次只删一个文件，`sort` 适合简单文本排序。
 
 写入规则：
@@ -140,11 +141,15 @@ pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, cp, mv, rm, sort, basenam
 - >| 才表示显式覆盖
 - >> 表示追加
 - 多行写文件时可以使用：cat <<'EOF' > /workspace/file ... EOF
+- `edit` / `patch` 也支持单个 heredoc 输入
+- 单条 raw command 里不要串多个 heredoc 写入块；需要用 `;` 或 `&&` 拆成两条命令
 - 可使用受限兼容语法：`2>/dev/null`、`|| true`、`|| :`、`|| help`
 - 不要生成真实 shell 扩展语法：通用 `||`、<、<<<、1>、通用 `2>`、&>、$(...)、`...`
 
 多文件任务结束前：
+- 可以先执行 `status`
 - 看一下 `task_guidance["verification"]["pending_verification_paths"]`
+- 或直接执行 `verify`
 - 按 `suggested_readback` 再 `cat` 一次核对
 - 最终回答时优先复用 `modified_paths` 或 `task_guidance["verification"]["changed_paths"]`
 

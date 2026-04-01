@@ -116,7 +116,7 @@ The recommended way to integrate with an agent runtime is:
 
 For host-side durability, `workspace.ensure(db)` also initializes the checkpoint persistence precondition used by `workspace.flush()`. After a normal `ensure(db)`, the host path does not need to initialize checkpoint worker state manually.
 
-The virtual shell also provides a built-in `help` command. If the agent needs to re-check the supported surface at runtime, call `workspace.bash(db, "help")` and read `stdout` or `artifacts["supported_commands"]`. Each bash result also includes `workspace_outline`, `workspace_bootstrap`, `unique_filename_index`, `path_shortcuts`, and `discovery_hint` for path discovery, plus `task_guidance`, `verification_hint`, and `modified_paths` for long-horizon verification before the final answer. Parse failures also expose a structured `artifacts["parse_error"]` object.
+The virtual shell also provides a built-in `help` command. If the agent needs to re-check the supported surface at runtime, call `workspace.bash(db, "help")` and read `stdout` or `artifacts["supported_commands"]`. Each bash result also includes `workspace_outline`, `workspace_bootstrap`, `unique_filename_index`, `path_shortcuts`, and `discovery_hint` for path discovery, plus `task_guidance`, `verification_hint`, and `modified_paths` for long-horizon verification before the final answer. Parse failures also expose a structured `artifacts["parse_error"]` object, including explicit rewrite templates for unsupported multi-heredoc write chains.
 
 Recommended minimal agent prompt:
 
@@ -124,11 +124,12 @@ Recommended minimal agent prompt:
 You are in a virtual workspace, not a full OS shell.
 
 Use workspace.bash(db, "...") with only these commands:
-pwd, cd, ls, cat, find, rg, grep, wc -l, mkdir, touch, cp, mv, rm, sort, basename, dirname, edit, patch, tree, xargs, echo, help
+pwd, cd, ls, cat, find, rg, grep, status, verify, wc -l, mkdir, touch, cp, mv, rm, sort, basename, dirname, edit, patch, tree, xargs, echo, help
 Use `ls -l` when you need type/size/version/mtime.
 When you know a filename but not its exact path, start with `find /workspace -name <name>`.
 When the path is unknown, prefer: `find /workspace -name <name>` -> `cat` -> `edit` / `patch`.
 When you need per-file match counts, prefer `grep -c <pattern> <path>` or `rg -c <pattern> <path>`.
+When you need line-numbered matches, prefer `grep -n <pattern> <path>`.
 For file-management steps, `cp`/`mv` are file-only, `rm` removes one file at a time, and `sort` is available for simple line sorting.
 
 Write rules:
@@ -137,11 +138,15 @@ Write rules:
 - >| overwrites explicitly
 - >> appends
 - for multi-line file creation, you may use: cat <<'EOF' > /workspace/file ... EOF
+- `edit` / `patch` also accept a single heredoc input
+- one raw command must not chain multiple heredoc write blocks; split them with `;` or `&&`
 - limited shell compatibility is available for `2>/dev/null` and restricted fallbacks `|| true`, `|| :`, `|| help`
 - do not generate real-shell extras such as: general `||`, <, <<<, 1>, general 2>, &>, $(...), `...`
 
 Before finishing a multi-file task:
+- optionally run `status`
 - inspect `task_guidance["verification"]["pending_verification_paths"]`
+- or run `verify`
 - run the suggested `cat ...` readback
 - reuse `modified_paths` or `task_guidance["verification"]["changed_paths"]` in the final answer
 
