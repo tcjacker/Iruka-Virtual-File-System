@@ -44,23 +44,3 @@ from iruka_vfs.mirror.serialization import (
     set_workspace_mirror,
     workspace_lock,
 )
-
-
-def __getattr__(name: str):
-    if name == "_dependencies":
-        from iruka_vfs.dependencies import get_vfs_dependencies
-
-        return get_vfs_dependencies()
-    if name == "_repositories":
-        from iruka_vfs.dependency_resolution import resolve_vfs_repositories
-
-        return resolve_vfs_repositories()
-    if name == "settings":
-        from iruka_vfs.dependencies import get_vfs_dependencies
-
-        return get_vfs_dependencies().settings
-    if name in {"AgentWorkspace", "VirtualFileNode"}:
-        from iruka_vfs.dependencies import get_vfs_dependencies
-
-        return getattr(get_vfs_dependencies(), name)
-    raise AttributeError(name)

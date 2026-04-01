@@ -47,7 +47,6 @@ class WorkspaceRefreshTest(unittest.TestCase):
         _reload("iruka_vfs.runtime.fs_commands")
         _reload("iruka_vfs.runtime.search")
         _reload("iruka_vfs.runtime")
-        _reload("iruka_vfs.command_runtime")
         _reload("iruka_vfs.integrations.agent.shell")
         _reload("iruka_vfs.service_ops.bootstrap")
         self.service_state = _reload("iruka_vfs.service_ops.state")

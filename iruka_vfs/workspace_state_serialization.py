@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from iruka_vfs.dependencies import get_vfs_dependencies
 from iruka_vfs.models import WorkspaceMirror
 
 
@@ -10,6 +11,10 @@ def _construct_row(row_type: type[object], **payload: object):
     if annotations:
         payload = {key: value for key, value in payload.items() if key in annotations}
     return row_type(**payload)
+
+
+def _virtual_file_node_model():
+    return get_vfs_dependencies().VirtualFileNode
 
 
 def _serialize_node_payload(node) -> dict[str, object]:
@@ -89,12 +94,13 @@ def deserialize_workspace_nodes(raw_value: str | None) -> dict[int, object]:
     from iruka_vfs import workspace_mirror as mirror_api
 
     nodes: dict[int, object] = {}
+    node_model = _virtual_file_node_model()
     if not raw_value:
         return nodes
     payload = json.loads(raw_value)
     for raw_node_id, node_payload in dict(payload or {}).items():
         node_id = int(raw_node_id)
-        nodes[node_id] = mirror_api.VirtualFileNode(
+        nodes[node_id] = node_model(
             id=int(node_payload["id"]),
             tenant_id=str(node_payload.get("tenant_id") or mirror_api.effective_tenant_key()),
             workspace_id=int(node_payload["workspace_id"]),
@@ -194,7 +200,7 @@ def clone_node(node):
     from iruka_vfs import workspace_mirror as mirror_api
 
     return _construct_row(
-        mirror_api.VirtualFileNode,
+        _virtual_file_node_model(),
         id=int(node.id or 0),
         tenant_id=str(getattr(node, "tenant_id", "") or mirror_api.effective_tenant_key()),
         workspace_id=int(node.workspace_id),

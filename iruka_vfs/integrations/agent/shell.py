@@ -6,7 +6,6 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from iruka_vfs.command_parser import split_chain
-from iruka_vfs.command_runtime import run_command_chain
 from iruka_vfs.constants import (
     ASYNC_COMMAND_LOGGING,
     VFS_ACCESS_MODE_AGENT,
@@ -17,6 +16,7 @@ from iruka_vfs.constants import (
 )
 from iruka_vfs.memory_cache import ensure_mem_cache_worker
 from iruka_vfs.runtime import must_get_node, truncate_for_log
+from iruka_vfs.runtime.executor import run_command_chain
 from iruka_vfs.runtime.logging_support import prepare_artifacts_for_log as prepare_log_artifacts
 from iruka_vfs.runtime_seed import WorkspaceSeed
 from iruka_vfs.integrations.agent.guidance import (

@@ -96,4 +96,3 @@ AgentWorkspace = VFSWorkspace
 VirtualFileNode = VFSFileNode
 VirtualShellSession = VFSShellSession
 VirtualShellCommand = VFSShellCommand
-VirtualPatch = VFSPatch
