@@ -22,6 +22,21 @@ Start with these two documents:
 
 If you only need integration guidance, read `docs/api_integration.en.md` first.
 
+Development setup:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -e .[dev]
+python3 -m pytest
+```
+
+Quick sanity check:
+
+```bash
+python3 -m compileall iruka_vfs examples/standalone_sqlite_demo.py
+```
+
 ## Runtime Profiles
 
 | Profile | WorkspaceStateStore | VFSRepositories | External Dependencies | Recommended Use |

@@ -139,7 +139,7 @@ def load_project_state_payload(*args, **kwargs) -> dict:
 
 正式接入时，高层 profile builder 默认直接使用项目中的内部 VFS 模型定义，例如：
 
-- [sqlalchemy_models.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/sqlalchemy_models.py)
+- [sqlalchemy_models.py](../iruka_vfs/sqlalchemy_models.py)
 
 ## 4. 基础接入步骤
 
@@ -648,7 +648,7 @@ with SessionLocal() as db:
 
 ## 7. 常用 API
 
-`VirtualWorkspace` 常用方法见 [workspace_handle.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/sdk/workspace_handle.py)：
+`VirtualWorkspace` 常用方法见 [workspace_handle.py](../iruka_vfs/sdk/workspace_handle.py)：
 
 - `ensure(db)`
   初始化或加载 workspace mirror
@@ -741,10 +741,10 @@ Redis 在当前架构里是 `WorkspaceStateStore` 的实现载体，不只是旁
 
 ## 11. 相关文件
 
-- [__init__.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/__init__.py)
-- [profile_setup.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/profile_setup.py)
-- [workspace_handle.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/sdk/workspace_handle.py)
-- [workspace_state_store.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/workspace_state_store.py)
-- [pgsql_repositories.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/pgsql_repositories.py)
-- [in_memory_repositories.py](/Users/tc/ai/Iruka-Virtual-File-System/iruka_vfs/in_memory_repositories.py)
-- [standalone_sqlite_demo.py](/Users/tc/ai/Iruka-Virtual-File-System/examples/standalone_sqlite_demo.py)
+- [__init__.py](../iruka_vfs/__init__.py)
+- [profile_setup.py](../iruka_vfs/profile_setup.py)
+- [workspace_handle.py](../iruka_vfs/sdk/workspace_handle.py)
+- [workspace_state_store.py](../iruka_vfs/workspace_state_store.py)
+- [pgsql_repositories.py](../iruka_vfs/pgsql_repositories.py)
+- [in_memory_repositories.py](../iruka_vfs/in_memory_repositories.py)
+- [standalone_sqlite_demo.py](../examples/standalone_sqlite_demo.py)

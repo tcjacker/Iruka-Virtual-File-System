@@ -8,11 +8,41 @@ version = "0.1.0"
 description = "Virtual filesystem runtime for agent-driven editing workflows"
 readme = "README.md"
 requires-python = ">=3.11"
+license = {file = "LICENSE"}
+authors = [
+    {name = "tcjacker"},
+]
+keywords = ["agent", "vfs", "virtual-filesystem", "llm", "runtime", "workspace"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Version Control",
+]
 dependencies = [
     "sqlalchemy>=2.0",
     "redis>=5.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+]
+
+[project.urls]
+Homepage = "https://github.com/tcjacker/Iruka-Virtual-File-System"
+Repository = "https://github.com/tcjacker/Iruka-Virtual-File-System"
+Issues = "https://github.com/tcjacker/Iruka-Virtual-File-System/issues"
+Documentation = "https://github.com/tcjacker/Iruka-Virtual-File-System/tree/main/docs"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["iruka_vfs*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -94,7 +94,7 @@ def workspace_scope_for_db(db: Session) -> str:
     if bind is None:
         base = str(getattr(settings, "database_url", "") or "default-db")
     else:
-        url = str(bind.url.render_as_string(hide_password=False))
+        url = str(bind.url.render_as_string(hide_password=True))
         if ":memory:" in url:
             return f"sqlite-memory-{id(bind)}"
         base = url

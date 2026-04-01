@@ -17,10 +17,25 @@
 
 推荐先看两份文档：
 
-- 架构分层：[docs/architecture.md](/Users/tc/ai/Iruka-Virtual-File-System/docs/architecture.md)
-- API 接入与三种模式：[docs/api_integration.md](/Users/tc/ai/Iruka-Virtual-File-System/docs/api_integration.md)
+- 架构分层：[docs/architecture.md](docs/architecture.md)
+- API 接入与三种模式：[docs/api_integration.md](docs/api_integration.md)
 
 如果你只关心怎么接，优先看 `docs/api_integration.md`。
+
+开发环境建议：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -e .[dev]
+python3 -m pytest
+```
+
+快速检查：
+
+```bash
+python3 -m compileall iruka_vfs examples/standalone_sqlite_demo.py
+```
 
 ## 三种运行模式
 
@@ -53,7 +68,7 @@ iruka_vfs_repo/
   pyproject.toml
 ```
 
-当前包分层和依赖方向见 [docs/architecture.md](/Users/tc/ai/Iruka-Virtual-File-System/docs/architecture.md)。
+当前包分层和依赖方向见 [docs/architecture.md](docs/architecture.md)。
 
 这轮重构后，项目结构可以理解为：
 
@@ -102,8 +117,8 @@ configure_vfs_dependencies(
 
 更详细说明见：
 
-- 宿主侧适配契约：[HOST_ADAPTER.zh-CN.md](/Users/tc/ai/Iruka-Virtual-File-System/HOST_ADAPTER.zh-CN.md)
-- API / Redis / 内存 / pgsql 接入：[docs/api_integration.md](/Users/tc/ai/Iruka-Virtual-File-System/docs/api_integration.md)
+- 宿主侧适配契约：[HOST_ADAPTER.zh-CN.md](HOST_ADAPTER.zh-CN.md)
+- API / Redis / 内存 / pgsql 接入：[docs/api_integration.md](docs/api_integration.md)
 
 ## Agent 接入路径
 
