@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -22,6 +23,7 @@ SUPPORTED_COMMANDS = {
     "tree",
     "echo",
     "touch",
+    "sed",
 }
 
 
@@ -101,6 +103,36 @@ def run_single_command(db: Session, session, cmd: str) -> VirtualCommandResult:
         return VirtualCommandResult("", "", 0, {"pipeline": pipeline_artifacts, "redirect": write_result.artifacts})
 
     return VirtualCommandResult(effective_stdout, effective_stderr, last_result.exit_code, {"pipeline": pipeline_artifacts})
+
+
+def _exec_sed_range(db: Session, session, args: list[str]) -> VirtualCommandResult:
+    from iruka_vfs import service
+
+    usage_error = "sed: unsupported usage; supported form: sed -n 'START,ENDp' FILE"
+    expression_error = "sed: unsupported expression; supported form: sed -n 'START,ENDp' FILE"
+
+    if len(args) != 3 or args[0] != "-n":
+        return VirtualCommandResult("", usage_error, 1, {})
+
+    expression, target = args[1], args[2]
+    match = re.fullmatch(r"([0-9]+),([0-9]+)p", expression)
+    if not match:
+        return VirtualCommandResult("", expression_error, 1, {})
+
+    start_line = int(match.group(1))
+    end_line = int(match.group(2))
+    if start_line < 1:
+        return VirtualCommandResult("", "sed: line numbers must start at 1", 1, {})
+    if end_line < start_line:
+        return VirtualCommandResult("", "sed: end line must be greater than or equal to start line", 1, {})
+
+    node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, target)
+    if not node or node.node_type != "file":
+        return VirtualCommandResult("", f"sed: {target}: No such file", 1, {})
+
+    lines = service._get_node_content(db, node).splitlines()
+    selected = lines[start_line - 1 : end_line]
+    return VirtualCommandResult("\n".join(selected), "", 0, {"path": target, "start": start_line, "end": end_line})
 
 
 def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") -> VirtualCommandResult:
@@ -190,6 +222,8 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
         return VirtualCommandResult(" ".join(args), "", 0, {})
     if name == "touch":
         return service._exec_touch(db, session, args)
+    if name == "sed":
+        return _exec_sed_range(db, session, args)
 
     return VirtualCommandResult("", _unsupported_command_error(name), 127, {})
 
