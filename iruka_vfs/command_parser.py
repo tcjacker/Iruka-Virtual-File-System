@@ -27,7 +27,10 @@ def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
     try:
         tokens = list(shell_tokens(cmd))
     except ValueError as exc:
-        return {}, f"parse error: {exc}"
+        message = f"parse error: {exc}"
+        if "No closing quotation" in str(exc):
+            message += ". Close all quotes before retrying"
+        return {}, message
 
     if not tokens:
         return {"pipeline": [], "redirect": None}, None
@@ -50,6 +53,8 @@ def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
             current = []
             idx += 1
             continue
+        if token in {"<", "<<"}:
+            return {}, "parse error: input redirect < is not supported; use cat FILE | COMMAND instead"
         if token in {">", ">>"}:
             if idx + 1 >= len(tokens):
                 return {}, "parse error: redirect target is missing"
@@ -69,7 +74,7 @@ def parse_pipeline_and_redirect(cmd: str) -> tuple[dict[str, Any], str | None]:
 
 
 def shell_tokens(cmd: str) -> list[str]:
-    lexer = shlex.shlex(cmd, posix=True, punctuation_chars="|>&")
+    lexer = shlex.shlex(cmd, posix=True, punctuation_chars="|&<>")
     lexer.whitespace_split = True
     lexer.commenters = ""
     tokens = list(lexer)
@@ -83,6 +88,9 @@ def shell_tokens(cmd: str) -> list[str]:
             continue
         if token == ">>":
             normalized.append(token)
+            continue
+        if token and set(token) <= {"<"} and token != "<":
+            normalized.extend("<" for _ in token)
             continue
         if token and set(token) <= {">"} and token != ">":
             normalized.extend(">" for _ in token)

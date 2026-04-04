@@ -8,6 +8,31 @@ from sqlalchemy.orm import Session
 from iruka_vfs.command_parser import parse_pipeline_and_redirect, split_chain
 from iruka_vfs.models import VirtualCommandResult
 
+SUPPORTED_COMMANDS = {
+    "pwd",
+    "cd",
+    "ls",
+    "cat",
+    "rg",
+    "grep",
+    "wc",
+    "mkdir",
+    "edit",
+    "patch",
+    "tree",
+    "echo",
+    "touch",
+}
+
+
+def _unsupported_command_error(name: str) -> str:
+    message = f"unsupported command: {name}"
+    hints: list[str] = []
+    if name.endswith(":"):
+        hints.append("remove trailing punctuation")
+    hints.append(f"supported commands: {', '.join(sorted(SUPPORTED_COMMANDS))}")
+    return f"{message}. {'; '.join(hints)}"
+
 
 def run_command_chain(db: Session, session, raw_cmd: str) -> VirtualCommandResult:
     pieces = split_chain(raw_cmd)
@@ -166,7 +191,7 @@ def exec_argv(db: Session, session, argv: list[str], *, input_text: str = "") ->
     if name == "touch":
         return service._exec_touch(db, session, args)
 
-    return VirtualCommandResult("", f"unsupported command: {name}", 127, {})
+    return VirtualCommandResult("", _unsupported_command_error(name), 127, {})
 
 
 def apply_redirect(db: Session, session, *, output_text: str, redirect: dict[str, str]) -> VirtualCommandResult:
