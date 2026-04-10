@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import logging
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -55,6 +56,7 @@ _dependencies = get_vfs_dependencies()
 _repositories = _dependencies.repositories or build_sqlalchemy_repositories(_dependencies)
 VirtualShellSession = _dependencies.VirtualShellSession
 AgentWorkspace = _dependencies.AgentWorkspace
+logger = logging.getLogger(__name__)
 
 
 def flush_workspace(workspace_id: int, tenant_id: str | None = None) -> bool:
@@ -148,6 +150,17 @@ def run_virtual_bash(
                 lock.release()
             except Exception:
                 pass
+        if result.exit_code != 0:
+            logger.error(
+                "virtual bash command failed: cmd=%r exit_code=%s tenant_id=%s workspace_id=%s session_id=%s cwd=%s stderr=%r",
+                raw_cmd,
+                result.exit_code,
+                tenant_key,
+                workspace.id,
+                session.id,
+                cwd_path,
+                result.stderr,
+            )
         log_stdout, stdout_meta = truncate_for_log(result.stdout, VFS_COMMAND_LOG_MAX_STDOUT_CHARS)
         log_stderr, stderr_meta = truncate_for_log(result.stderr, VFS_COMMAND_LOG_MAX_STDERR_CHARS)
         log_artifacts = prepare_log_artifacts(
