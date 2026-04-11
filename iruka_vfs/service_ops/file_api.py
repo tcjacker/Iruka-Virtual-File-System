@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 import logging
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -20,8 +22,10 @@ from iruka_vfs.constants import (
 )
 from iruka_vfs.dependencies import get_vfs_dependencies
 from iruka_vfs.pathing import list_children, node_path, path_is_under, resolve_parent_for_create, resolve_path
+from iruka_vfs.models import VirtualCommandResult
 from iruka_vfs.runtime import collect_files, must_get_node, truncate_for_log
 from iruka_vfs.runtime.filesystem import get_or_create_session
+from iruka_vfs.runtime.filesystem import get_or_create_child_file, write_file
 from iruka_vfs.runtime_seed import RuntimeSeed
 from iruka_vfs.service_ops.access_mode import assert_workspace_access_mode
 from iruka_vfs.service_ops.bootstrap import ensure_virtual_workspace, normalize_workspace_path, seed_workspace_file
@@ -57,6 +61,96 @@ _repositories = _dependencies.repositories or build_sqlalchemy_repositories(_dep
 VirtualShellSession = _dependencies.VirtualShellSession
 AgentWorkspace = _dependencies.AgentWorkspace
 logger = logging.getLogger(__name__)
+_HEREDOC_HEADER_RE = re.compile(
+    r"^cat\s+(?P<op>>>|>)\s+(?P<path>\S+)\s+<<(?P<quote>['\"]?)(?P<delimiter>[A-Za-z_][A-Za-z0-9_]*)?(?P=quote)\s*$"
+)
+
+
+@dataclass(frozen=True)
+class HeredocWriteCommand:
+    mode: str
+    path: str
+    content: str
+    delimiter: str
+
+
+def parse_heredoc_write_command(raw_cmd: str) -> HeredocWriteCommand | None:
+    if "\n" not in raw_cmd:
+        return None
+    first_line, remainder = raw_cmd.split("\n", 1)
+    match = _HEREDOC_HEADER_RE.fullmatch(first_line.strip())
+    if not match:
+        return None
+
+    delimiter = match.group("delimiter") or ""
+    if not delimiter:
+        raise ValueError("invalid heredoc delimiter")
+
+    end_marker = f"\n{delimiter}"
+    end_index = remainder.find(end_marker)
+    if end_index < 0:
+        raise ValueError(f"missing heredoc terminator: {delimiter}")
+
+    content = remainder[: end_index + 1] if end_index > 0 else ""
+    trailing = remainder[end_index + len(end_marker) :]
+    if trailing not in {"", "\n"}:
+        raise ValueError("heredoc write cannot include trailing commands after terminator")
+
+    return HeredocWriteCommand(
+        mode="append" if match.group("op") == ">>" else "write",
+        path=match.group("path"),
+        content=content,
+        delimiter=delimiter,
+    )
+
+
+def execute_heredoc_write_command(db: Session, session: VirtualShellSession, command: HeredocWriteCommand) -> VirtualCommandResult:
+    node = resolve_path(db, session.workspace_id, session.cwd_node_id, command.path)
+    if node and node.node_type == "dir":
+        return VirtualCommandResult("", f"heredoc: {command.path}: is a directory", 1, {"protocol": "heredoc_write"})
+
+    resolved_target = resolve_target_path_for_write(db, session, command.path, node=node)
+    if not resolved_target:
+        return VirtualCommandResult(
+            "",
+            f"heredoc: cannot create {command.path}: invalid parent path",
+            1,
+            {"protocol": "heredoc_write"},
+        )
+
+    allowed, deny_reason = allow_write_path(db, session, resolved_target)
+    if not allowed:
+        return VirtualCommandResult("", f"heredoc: {deny_reason}", 1, {"protocol": "heredoc_write", "path": resolved_target})
+
+    if not node:
+        parent, name = resolve_parent_for_create(db, session.workspace_id, session.cwd_node_id, command.path)
+        if not parent or not name:
+            return VirtualCommandResult(
+                "",
+                f"heredoc: cannot create {command.path}: invalid parent path",
+                1,
+                {"protocol": "heredoc_write"},
+            )
+        node = get_or_create_child_file(db, session.workspace_id, int(parent.id), name, "")
+
+    content = command.content
+    if command.mode == "append":
+        content = get_node_content(db, node) + content
+
+    version_no = write_file(db, node, content, op="heredoc_append" if command.mode == "append" else "heredoc_write")
+    return VirtualCommandResult(
+        "",
+        "",
+        0,
+        {
+            "protocol": "heredoc_write",
+            "mode": command.mode,
+            "path": resolved_target,
+            "delimiter": command.delimiter,
+            "content_bytes": len(command.content),
+            "version": version_no,
+        },
+    )
 
 
 def flush_workspace(workspace_id: int, tenant_id: str | None = None) -> bool:
@@ -131,7 +225,15 @@ def run_virtual_bash(
             set_active_workspace_mirror(mirror)
             original_cwd_node_id = int(mirror.cwd_node_id)
             original_revision = int(mirror.revision)
-            result = run_command_chain(db, session, raw_cmd)
+            try:
+                heredoc_command = parse_heredoc_write_command(raw_cmd)
+            except ValueError as exc:
+                result = VirtualCommandResult("", f"parse error: {exc}", 2, {"protocol": "heredoc_write"})
+            else:
+                if heredoc_command:
+                    result = execute_heredoc_write_command(db, session, heredoc_command)
+                else:
+                    result = run_command_chain(db, session, raw_cmd)
             next_cwd_node_id = int(session.cwd_node_id or mirror.cwd_node_id)
             if next_cwd_node_id != original_cwd_node_id:
                 mirror.cwd_node_id = next_cwd_node_id
