@@ -17,6 +17,7 @@ from iruka_vfs.service_ops.bootstrap import (
 from iruka_vfs.service_ops.file_api import (
     allow_write_path,
     flush_workspace,
+    get_workspace_file_tree,
     normalize_virtual_path,
     read_workspace_directory,
     read_workspace_file,
@@ -49,6 +50,7 @@ __all__ = [
     "get_cached_workspace_state",
     "get_redis_client",
     "get_registered_runtime_seed",
+    "get_workspace_file_tree",
     "get_workspace_access_mode",
     "next_ephemeral_command_id",
     "next_ephemeral_patch_id",

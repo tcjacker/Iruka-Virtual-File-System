@@ -12,6 +12,20 @@ from iruka_vfs.sdk.workspace_handle import VirtualWorkspace
 
 
 class WorkspaceHandleToolsTest(unittest.TestCase):
+    def test_workspace_file_tree_delegates_to_service(self) -> None:
+        workspace = VirtualWorkspace(
+            workspace=DummyWorkspace(id=7, tenant_id="tenant-a"),
+            runtime_seed=SimpleNamespace(),
+            tenant_id="tenant-a",
+        )
+        expected = {"path": "/workspace", "name": "workspace", "type": "dir", "children": []}
+
+        with patch("iruka_vfs.service_ops.file_api.get_workspace_file_tree", return_value=expected) as file_tree:
+            result = workspace.file_tree(object(), "/workspace")
+
+        self.assertEqual(result, expected)
+        file_tree.assert_called_once()
+
     def test_workspace_tool_write_delegates_to_service(self) -> None:
         workspace = VirtualWorkspace(
             workspace=DummyWorkspace(id=7, tenant_id="tenant-a"),

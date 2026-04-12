@@ -37,6 +37,7 @@ iruka_vfs_repo/
 - `iruka_vfs.configure_vfs_dependencies(...)`
 - `iruka_vfs.create_workspace(...)`
 - `workspace.ensure(db)`
+- `workspace.file_tree(db, path="/workspace")`
 - `workspace.tool_write(db, path, content)`
 - `workspace.tool_edit(db, path, old_text, new_text, replace_all=False)`
 - `workspace.bash(db, "...")`
@@ -50,7 +51,7 @@ iruka_vfs_repo/
 1. 在进程启动时完成依赖配置
 2. 为一个 agent 创建一个 workspace 对象
 3. 绑定一个可写主文件，以及若干只读 context / skill 文件
-4. 优先通过 `workspace.tool_write(...)` 和 `workspace.tool_edit(...)` 做结构化文件修改，再把 `workspace.bash(...)` 用于受控的 shell 风格读取和探索
+4. 优先通过 `workspace.tool_write(...)` 和 `workspace.tool_edit(...)` 做结构化文件修改，通过 `workspace.file_tree(...)` 获取最新的结构化 mirror 树，再把 `workspace.bash(...)` 用于受控的 shell 风格读取和探索
 5. 在明确的持久化边界调用 `workspace.flush()`
 
 更详细的宿主接入说明见 [HOST_ADAPTER.zh-CN.md](/Users/tc/ai/Iruka-Virtual-File-System/HOST_ADAPTER.zh-CN.md)。
@@ -80,6 +81,7 @@ workspace = create_workspace(
 
 workspace.ensure(db)
 workspace.write_file(db, "/workspace/docs/generated.md", "hello from host")
+tree = workspace.file_tree(db, "/workspace/docs")
 workspace.tool_write(db, "/workspace/docs/page.html", "<section>Hello</section>\n")
 workspace.tool_edit(db, "/workspace/docs/page.html", "Hello", "Hello Dog Cafe")
 content = workspace.read_file(db, "/workspace/docs/brief.md")
@@ -98,6 +100,7 @@ workspace.flush()
 
 - `create_workspace(..., workspace_files={path: content, ...})`
 - `workspace.write_file(db, path, content)`
+- `workspace.file_tree(db, path="/workspace")`
 - `workspace.tool_write(db, path, content)`
 - `workspace.tool_edit(db, path, old_text, new_text, replace_all=False)`
 - `workspace.read_file(db, path)`
@@ -109,6 +112,7 @@ workspace.flush()
 - 相对路径会自动挂到 `/workspace` 下
 - 写文件时会自动创建父目录
 - 路径必须位于 `/workspace` 之内
+- `file_tree(...)` 会从当前 VFS mirror 返回最新的递归树结构
 - `read_directory(...)` 返回 `{virtual_path: content}` 映射
 - `tool_write(...)` 是推荐的整文件结构化写入接口，对应类似 Claude Code 的 `write`
 - `tool_edit(...)` 是推荐的目标文本结构化编辑接口，对应类似 Claude Code 的 `edit`；默认要求恰好匹配一次，除非传 `replace_all=True`

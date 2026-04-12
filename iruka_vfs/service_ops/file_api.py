@@ -402,6 +402,58 @@ def tool_edit_workspace_file(
     }
 
 
+def _build_file_tree_from_mirror(mirror, node_id: int, current_path: str) -> dict[str, Any]:
+    node = mirror.nodes[int(node_id)]
+    payload: dict[str, Any] = {
+        "path": current_path,
+        "name": str(node.name),
+        "type": str(node.node_type),
+    }
+    if str(node.node_type) != "dir":
+        return payload
+
+    children: list[dict[str, Any]] = []
+    for child_id in list(mirror.children_by_parent.get(int(node_id), [])):
+        child = mirror.nodes[int(child_id)]
+        child_path = f"{current_path.rstrip('/')}/{child.name}" if current_path != "/" else f"/{child.name}"
+        children.append(_build_file_tree_from_mirror(mirror, int(child_id), child_path))
+    payload["children"] = children
+    return payload
+
+
+def get_workspace_file_tree(
+    db: Session,
+    workspace: AgentWorkspace,
+    path: str = VFS_ROOT,
+    *,
+    runtime_seed: RuntimeSeed,
+    tenant_id: str | None = None,
+) -> dict[str, Any]:
+    tenant_key = assert_workspace_tenant(workspace, tenant_id)
+    ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id=tenant_key)
+    assert_workspace_access_mode(
+        workspace,
+        tenant_key=tenant_key,
+        required_mode=VFS_ACCESS_MODE_HOST,
+        scope_key=workspace_scope_for_db(db),
+    )
+    try:
+        normalized = normalize_workspace_path(path)
+    except ValueError as exc:
+        if "must stay under" in str(exc):
+            raise PermissionError(str(exc)) from exc
+        raise
+    mirror = get_workspace_mirror(int(workspace.id), tenant_key=tenant_key, scope_key=workspace_scope_for_db(db))
+    if not mirror:
+        raise ValueError(f"workspace mirror missing for workspace {workspace.id}")
+
+    with mirror.lock:
+        node_id = mirror.path_to_id.get(normalized)
+        if node_id is None:
+            raise FileNotFoundError(f"workspace path not found: {normalized}")
+        return _build_file_tree_from_mirror(mirror, int(node_id), normalized)
+
+
 def read_workspace_file(
     db: Session,
     workspace: AgentWorkspace,

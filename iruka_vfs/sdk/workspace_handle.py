@@ -132,6 +132,17 @@ class VirtualWorkspace:
             tenant_id=self.tenant_id,
         )
 
+    def file_tree(self, db: Session, path: str = "/workspace") -> dict[str, Any]:
+        from iruka_vfs.service_ops.file_api import get_workspace_file_tree
+
+        return get_workspace_file_tree(
+            db,
+            self.workspace,
+            path,
+            runtime_seed=self.runtime_seed,
+            tenant_id=self.tenant_id,
+        )
+
     def read_file(self, db: Session, path: str) -> str:
         from iruka_vfs import service
 
