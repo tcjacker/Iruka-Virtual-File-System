@@ -7,12 +7,26 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from iruka_vfs.command_parser import parse_options as _parse_options
+from iruka_vfs.memory_cache import get_node_content
 from iruka_vfs.models import VirtualCommandResult
+from iruka_vfs.pathing import node_path, resolve_path
+from iruka_vfs.runtime.filesystem import write_file
+
+
+def apply_text_edit(before: str, find_text: str, replace_text: str, *, replace_all: bool = False) -> tuple[str, int]:
+    if find_text not in before:
+        raise ValueError("target text not found")
+
+    if replace_all:
+        return before.replace(find_text, replace_text), before.count(find_text)
+
+    count = before.count(find_text)
+    if count > 1:
+        raise ValueError("target text matches multiple times")
+    return before.replace(find_text, replace_text, 1), 1
 
 
 def exec_edit(db: Session, session, args: list[str]) -> VirtualCommandResult:
-    from iruka_vfs import service
-
     if not args:
         return VirtualCommandResult("", "edit: missing path", 1, {})
 
@@ -24,26 +38,26 @@ def exec_edit(db: Session, session, args: list[str]) -> VirtualCommandResult:
     if find_text is None or replace_text is None:
         return VirtualCommandResult("", "edit: require --find and --replace", 1, {})
 
-    node = service._resolve_path(db, session.workspace_id, session.cwd_node_id, path)
+    node = resolve_path(db, session.workspace_id, session.cwd_node_id, path)
     if not node or node.node_type != "file":
         return VirtualCommandResult("", f"edit: file not found: {path}", 1, {})
-    node_path = service._node_path(db, node)
-    allowed, deny_reason = service._allow_write_path(db, session, node_path)
+    resolved_node_path = node_path(db, node)
+    from iruka_vfs.service_ops.file_api import allow_write_path
+
+    allowed, deny_reason = allow_write_path(db, session, resolved_node_path)
     if not allowed:
-        return VirtualCommandResult("", f"edit: {deny_reason}", 1, {"path": node_path})
+        return VirtualCommandResult("", f"edit: {deny_reason}", 1, {"path": resolved_node_path})
 
-    before = service._get_node_content(db, node)
-    if find_text not in before:
-        return VirtualCommandResult("", "edit: target text not found", 1, {"path": node_path})
+    before = get_node_content(db, node)
+    try:
+        after, count = apply_text_edit(before, find_text, replace_text, replace_all=replace_all)
+    except ValueError as exc:
+        if str(exc) == "target text not found":
+            return VirtualCommandResult("", "edit: target text not found", 1, {"path": resolved_node_path})
+        return VirtualCommandResult("", f"edit: {exc}", 1, {"path": resolved_node_path})
 
-    if replace_all:
-        after = before.replace(find_text, replace_text)
-        count = before.count(find_text)
-    else:
-        after = before.replace(find_text, replace_text, 1)
-        count = 1
 
-    version_no = service._write_file(db, node, after, op="edit")
+    version_no = write_file(db, node, after, op="edit")
     return VirtualCommandResult(
         f"edited {count} occurrence(s) in {node_path} -> version {version_no}",
         "",

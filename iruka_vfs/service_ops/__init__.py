@@ -22,6 +22,8 @@ from iruka_vfs.service_ops.file_api import (
     read_workspace_file,
     resolve_target_path_for_write,
     run_virtual_bash,
+    tool_edit_workspace_file,
+    tool_write_workspace_file,
     write_workspace_file,
 )
 from iruka_vfs.service_ops.state import (
@@ -61,6 +63,8 @@ __all__ = [
     "set_cached_workspace_state",
     "set_workspace_access_mode",
     "sync_external_file_source",
+    "tool_edit_workspace_file",
+    "tool_write_workspace_file",
     "workspace_access_mode_for_runtime",
     "workspace_access_mode_from_metadata",
     "write_workspace_file",

@@ -26,6 +26,7 @@ from iruka_vfs.models import VirtualCommandResult
 from iruka_vfs.runtime import collect_files, must_get_node, truncate_for_log
 from iruka_vfs.runtime.filesystem import get_or_create_session
 from iruka_vfs.runtime.filesystem import get_or_create_child_file, write_file
+from iruka_vfs.runtime.editing import apply_text_edit
 from iruka_vfs.runtime_seed import RuntimeSeed
 from iruka_vfs.service_ops.access_mode import assert_workspace_access_mode
 from iruka_vfs.service_ops.bootstrap import ensure_virtual_workspace, normalize_workspace_path, seed_workspace_file
@@ -328,6 +329,77 @@ def write_workspace_file(
     if not allowed:
         raise PermissionError(f"write_file: {deny_reason}")
     return seed_workspace_file(db, int(workspace.id), normalized, content, op="python_write_file")
+
+
+def tool_write_workspace_file(
+    db: Session,
+    workspace: AgentWorkspace,
+    path: str,
+    content: str,
+    *,
+    runtime_seed: RuntimeSeed,
+    tenant_id: str | None = None,
+) -> dict[str, Any]:
+    payload = write_workspace_file(
+        db,
+        workspace,
+        path,
+        content,
+        runtime_seed=runtime_seed,
+        tenant_id=tenant_id,
+    )
+    return {
+        "operation": "tool_write",
+        "path": str(payload["path"]),
+        "version": int(payload["version"]),
+        "created": bool(payload["created"]),
+        "bytes_written": len(content),
+    }
+
+
+def tool_edit_workspace_file(
+    db: Session,
+    workspace: AgentWorkspace,
+    path: str,
+    old_text: str,
+    new_text: str,
+    *,
+    replace_all: bool = False,
+    runtime_seed: RuntimeSeed,
+    tenant_id: str | None = None,
+) -> dict[str, Any]:
+    tenant_key = assert_workspace_tenant(workspace, tenant_id)
+    ensure_virtual_workspace(db, workspace, runtime_seed, include_tree=False, tenant_id=tenant_key)
+    assert_workspace_access_mode(
+        workspace,
+        tenant_key=tenant_key,
+        required_mode=VFS_ACCESS_MODE_HOST,
+        scope_key=workspace_scope_for_db(db),
+    )
+    normalized = normalize_workspace_path(path, require_file=True)
+    session = get_or_create_session(db, int(workspace.id))
+    node = resolve_path(db, int(workspace.id), int(session.cwd_node_id), normalized)
+    if not node or node.node_type != "file":
+        raise FileNotFoundError(f"tool_edit: workspace file not found: {normalized}")
+
+    resolved_node_path = node_path(db, node)
+    allowed, deny_reason = allow_write_path(db, session, resolved_node_path)
+    if not allowed:
+        raise PermissionError(f"tool_edit: {deny_reason}")
+
+    before = get_node_content(db, node)
+    try:
+        after, replacements = apply_text_edit(before, old_text, new_text, replace_all=replace_all)
+    except ValueError as exc:
+        raise ValueError(f"tool_edit: {exc}") from exc
+
+    version_no = write_file(db, node, after, op="tool_edit")
+    return {
+        "operation": "tool_edit",
+        "path": resolved_node_path,
+        "version": int(version_no),
+        "replacements": int(replacements),
+    }
 
 
 def read_workspace_file(

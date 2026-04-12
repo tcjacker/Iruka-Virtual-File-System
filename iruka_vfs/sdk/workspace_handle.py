@@ -98,6 +98,40 @@ class VirtualWorkspace:
             tenant_id=self.tenant_id,
         )
 
+    def tool_write(self, db: Session, path: str, content: str) -> dict[str, Any]:
+        from iruka_vfs.service_ops.file_api import tool_write_workspace_file
+
+        return tool_write_workspace_file(
+            db,
+            self.workspace,
+            path,
+            content,
+            runtime_seed=self.runtime_seed,
+            tenant_id=self.tenant_id,
+        )
+
+    def tool_edit(
+        self,
+        db: Session,
+        path: str,
+        old_text: str,
+        new_text: str,
+        *,
+        replace_all: bool = False,
+    ) -> dict[str, Any]:
+        from iruka_vfs.service_ops.file_api import tool_edit_workspace_file
+
+        return tool_edit_workspace_file(
+            db,
+            self.workspace,
+            path,
+            old_text,
+            new_text,
+            replace_all=replace_all,
+            runtime_seed=self.runtime_seed,
+            tenant_id=self.tenant_id,
+        )
+
     def read_file(self, db: Session, path: str) -> str:
         from iruka_vfs import service
 
