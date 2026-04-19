@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -10,6 +11,14 @@ from sqlalchemy.orm import Session
 from iruka_vfs.runtime_seed import RuntimeSeed
 
 logger = logging.getLogger(__name__)
+
+
+def _warn_deprecated(name: str, replacement: str) -> None:
+    warnings.warn(
+        f"{name} is deprecated and will be removed in 0.3; use {replacement} instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
 
 def _append_recovery_note(
@@ -178,16 +187,47 @@ class VirtualWorkspace:
             ),
         )
 
-    def bash(self, db: Session, raw_cmd: str) -> dict[str, Any]:
+    def _enter_agent_mode(self, db: Session, *, flush: bool = True) -> str:
         from iruka_vfs import service
 
-        return service.run_virtual_bash(
+        return service.set_workspace_access_mode(
             db,
             self.workspace,
-            raw_cmd,
+            runtime_seed=self.runtime_seed,
+            mode="agent",
+            tenant_id=self.tenant_id,
+            flush=flush,
+        )
+
+    def _enter_host_mode(self, db: Session, *, flush: bool = True) -> str:
+        from iruka_vfs import service
+
+        return service.set_workspace_access_mode(
+            db,
+            self.workspace,
+            runtime_seed=self.runtime_seed,
+            mode="host",
+            tenant_id=self.tenant_id,
+            flush=flush,
+        )
+
+    def _access_mode(self, db: Session) -> str:
+        from iruka_vfs import service
+
+        return service.get_workspace_access_mode(
+            db,
+            self.workspace,
             runtime_seed=self.runtime_seed,
             tenant_id=self.tenant_id,
         )
+
+    def _tree(self, db: Session) -> str:
+        snapshot = self.ensure(db, include_tree=True)
+        return str(snapshot.get("tree") or "")
+
+    def bash(self, db: Session, raw_cmd: str) -> dict[str, Any]:
+        _warn_deprecated("VirtualWorkspace.bash()", "VirtualWorkspace.run()")
+        return self.run(db, raw_cmd)
 
     def bootstrap_snapshot(
         self,
@@ -213,50 +253,20 @@ class VirtualWorkspace:
         return service.flush_workspace(self.workspace_id, tenant_id=self.tenant_id)
 
     def enter_agent_mode(self, db: Session, *, flush: bool = True) -> str:
-        from iruka_vfs import service
-
-        return service.set_workspace_access_mode(
-            db,
-            self.workspace,
-            runtime_seed=self.runtime_seed,
-            mode="agent",
-            tenant_id=self.tenant_id,
-            flush=flush,
-        )
+        _warn_deprecated("VirtualWorkspace.enter_agent_mode()", "high-level VirtualWorkspace methods")
+        return self._enter_agent_mode(db, flush=flush)
 
     def enter_host_mode(self, db: Session, *, flush: bool = True) -> str:
-        from iruka_vfs import service
-
-        return service.set_workspace_access_mode(
-            db,
-            self.workspace,
-            runtime_seed=self.runtime_seed,
-            mode="host",
-            tenant_id=self.tenant_id,
-            flush=flush,
-        )
+        _warn_deprecated("VirtualWorkspace.enter_host_mode()", "high-level VirtualWorkspace methods")
+        return self._enter_host_mode(db, flush=flush)
 
     def access_mode(self, db: Session) -> str:
-        from iruka_vfs import service
-
-        return service.get_workspace_access_mode(
-            db,
-            self.workspace,
-            runtime_seed=self.runtime_seed,
-            tenant_id=self.tenant_id,
-        )
+        _warn_deprecated("VirtualWorkspace.access_mode()", "high-level VirtualWorkspace methods")
+        return self._access_mode(db)
 
     def write_file(self, db: Session, path: str, content: str) -> dict[str, Any]:
-        from iruka_vfs import service
-
-        return service.write_workspace_file(
-            db,
-            self.workspace,
-            path,
-            content,
-            runtime_seed=self.runtime_seed,
-            tenant_id=self.tenant_id,
-        )
+        _warn_deprecated("VirtualWorkspace.write_file()", "VirtualWorkspace.write()")
+        return self.write(db, path, content)
 
     def write(self, db: Session, path: str, content: str) -> dict[str, Any]:
         from iruka_vfs.service_ops.file_api import tool_write_workspace_file
@@ -276,16 +286,8 @@ class VirtualWorkspace:
         )
 
     def tool_write(self, db: Session, path: str, content: str) -> dict[str, Any]:
-        from iruka_vfs.service_ops.file_api import tool_write_workspace_file
-
-        return tool_write_workspace_file(
-            db,
-            self.workspace,
-            path,
-            content,
-            runtime_seed=self.runtime_seed,
-            tenant_id=self.tenant_id,
-        )
+        _warn_deprecated("VirtualWorkspace.tool_write()", "VirtualWorkspace.write()")
+        return self.write(db, path, content)
 
     def tool_edit(
         self,
@@ -296,18 +298,8 @@ class VirtualWorkspace:
         *,
         replace_all: bool = False,
     ) -> dict[str, Any]:
-        from iruka_vfs.service_ops.file_api import tool_edit_workspace_file
-
-        return tool_edit_workspace_file(
-            db,
-            self.workspace,
-            path,
-            old_text,
-            new_text,
-            replace_all=replace_all,
-            runtime_seed=self.runtime_seed,
-            tenant_id=self.tenant_id,
-        )
+        _warn_deprecated("VirtualWorkspace.tool_edit()", "VirtualWorkspace.edit()")
+        return self.edit(db, path, old_text, new_text, replace_all=replace_all)
 
     def edit(
         self,
@@ -386,5 +378,8 @@ class VirtualWorkspace:
         )
 
     def tree(self, db: Session) -> str:
-        snapshot = self.ensure(db, include_tree=True)
-        return str(snapshot.get("tree") or "")
+        _warn_deprecated(
+            "VirtualWorkspace.tree()",
+            "VirtualWorkspace.ensure(..., include_tree=True) or VirtualWorkspace.file_tree()",
+        )
+        return self._tree(db)

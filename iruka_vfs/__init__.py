@@ -8,9 +8,7 @@ __all__ = [
     "ExternalFileSource",
     "VFSDependencies",
     "VirtualWorkspace",
-    "VirtualWorkspaceHandle",
     "WritableFileSource",
     "configure_vfs_dependencies",
     "create_workspace",
-    "create_workspace_handle",
 ]
