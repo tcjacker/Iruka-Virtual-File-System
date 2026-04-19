@@ -109,6 +109,8 @@ workspace.flush()
 
 ## 从弃用 API 迁移
 
+详细升级方法见 [docs/api-upgrade-guide.zh-CN.md](/Users/tc/ai/Iruka-Virtual-File-System/docs/api-upgrade-guide.zh-CN.md)。
+
 - `workspace.bash(db, cmd)` -> `workspace.run(db, cmd)`
 - `workspace.write_file(db, path, content)` -> `workspace.write(db, path, content)`
 - `workspace.tool_write(db, path, content)` -> `workspace.write(db, path, content)`

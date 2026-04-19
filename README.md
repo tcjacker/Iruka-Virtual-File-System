@@ -107,6 +107,8 @@ The host can manage virtual workspace files directly through Python APIs.
 
 ## Migration From Deprecated APIs
 
+For a full migration guide, see [docs/api-upgrade-guide.md](/Users/tc/ai/Iruka-Virtual-File-System/docs/api-upgrade-guide.md).
+
 - `workspace.bash(db, cmd)` -> `workspace.run(db, cmd)`
 - `workspace.write_file(db, path, content)` -> `workspace.write(db, path, content)`
 - `workspace.tool_write(db, path, content)` -> `workspace.write(db, path, content)`
