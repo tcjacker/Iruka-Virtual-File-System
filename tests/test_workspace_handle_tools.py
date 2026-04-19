@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from tests.support import DummyWorkspace, configure_test_dependencies
 
@@ -29,11 +29,47 @@ class WorkspaceHandlePublicApiTest(unittest.TestCase):
             "session_id": 11,
             "command_id": 21,
         }
-        with patch("iruka_vfs.service.run_virtual_bash", return_value=expected):
-            with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host"):
-                with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}):
-                    result = self.workspace.run(object(), "pwd")
+        db = object()
+        with patch("iruka_vfs.service.run_virtual_bash", return_value=expected) as run_virtual_bash:
+            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", "host"]) as set_mode:
+                with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
+                    result = self.workspace.run(db, "pwd")
         self.assertEqual(result, expected)
+        ensure_workspace.assert_called_once_with(
+            db,
+            self.workspace.workspace,
+            self.workspace.runtime_seed,
+            include_tree=False,
+            tenant_id="tenant-a",
+        )
+        self.assertEqual(
+            set_mode.call_args_list,
+            [
+                call(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
+                    mode="agent",
+                    tenant_id="tenant-a",
+                    flush=True,
+                ),
+                call(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
+                    mode="host",
+                    tenant_id="tenant-a",
+                    flush=True,
+                ),
+            ],
+        )
+        run_virtual_bash.assert_called_once_with(
+            db,
+            self.workspace.workspace,
+            "pwd",
+            runtime_seed=self.workspace.runtime_seed,
+            tenant_id="tenant-a",
+        )
 
     def test_workspace_write_delegates_to_structured_write_payload(self) -> None:
         expected = {
@@ -43,11 +79,48 @@ class WorkspaceHandlePublicApiTest(unittest.TestCase):
             "created": True,
             "bytes_written": 5,
         }
-        with patch("iruka_vfs.service_ops.file_api.tool_write_workspace_file", return_value=expected):
-            with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host"):
-                with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}):
-                    result = self.workspace.write(object(), "/workspace/a.txt", "hello")
+        db = object()
+        with patch("iruka_vfs.service_ops.file_api.tool_write_workspace_file", return_value=expected) as tool_write:
+            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", "host"]) as set_mode:
+                with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
+                    result = self.workspace.write(db, "/workspace/a.txt", "hello")
         self.assertEqual(result, expected)
+        ensure_workspace.assert_called_once_with(
+            db,
+            self.workspace.workspace,
+            self.workspace.runtime_seed,
+            include_tree=False,
+            tenant_id="tenant-a",
+        )
+        self.assertEqual(
+            set_mode.call_args_list,
+            [
+                call(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
+                    mode="agent",
+                    tenant_id="tenant-a",
+                    flush=True,
+                ),
+                call(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
+                    mode="host",
+                    tenant_id="tenant-a",
+                    flush=True,
+                ),
+            ],
+        )
+        tool_write.assert_called_once_with(
+            db,
+            self.workspace.workspace,
+            "/workspace/a.txt",
+            "hello",
+            runtime_seed=self.workspace.runtime_seed,
+            tenant_id="tenant-a",
+        )
 
     def test_workspace_edit_delegates_to_structured_edit_payload(self) -> None:
         expected = {
@@ -56,8 +129,47 @@ class WorkspaceHandlePublicApiTest(unittest.TestCase):
             "version": 4,
             "replacements": 1,
         }
-        with patch("iruka_vfs.service_ops.file_api.tool_edit_workspace_file", return_value=expected):
-            with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host"):
-                with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}):
-                    result = self.workspace.edit(object(), "/workspace/a.txt", "before", "after")
+        db = object()
+        with patch("iruka_vfs.service_ops.file_api.tool_edit_workspace_file", return_value=expected) as tool_edit:
+            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", "host"]) as set_mode:
+                with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
+                    result = self.workspace.edit(db, "/workspace/a.txt", "before", "after")
         self.assertEqual(result, expected)
+        ensure_workspace.assert_called_once_with(
+            db,
+            self.workspace.workspace,
+            self.workspace.runtime_seed,
+            include_tree=False,
+            tenant_id="tenant-a",
+        )
+        self.assertEqual(
+            set_mode.call_args_list,
+            [
+                call(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
+                    mode="agent",
+                    tenant_id="tenant-a",
+                    flush=True,
+                ),
+                call(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
+                    mode="host",
+                    tenant_id="tenant-a",
+                    flush=True,
+                ),
+            ],
+        )
+        tool_edit.assert_called_once_with(
+            db,
+            self.workspace.workspace,
+            "/workspace/a.txt",
+            "before",
+            "after",
+            replace_all=False,
+            runtime_seed=self.workspace.runtime_seed,
+            tenant_id="tenant-a",
+        )

@@ -37,7 +37,13 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
                 ):
                     self.workspace.run(db, "pwd")
 
-        ensure_workspace.assert_called_once()
+        ensure_workspace.assert_called_once_with(
+            db,
+            self.workspace.workspace,
+            self.workspace.runtime_seed,
+            include_tree=False,
+            tenant_id="tenant-a",
+        )
         self.assertEqual(
             set_mode.call_args_list,
             [
@@ -60,20 +66,54 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
             ],
         )
 
-    def test_read_file_restores_host_mode_after_success(self) -> None:
+    def test_write_restores_host_mode_after_success(self) -> None:
         db = object()
-        with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}):
-            with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host") as set_mode:
-                with patch("iruka_vfs.service.read_workspace_file", return_value="hello"):
-                    result = self.workspace.read_file(db, "/workspace/a.txt")
-        self.assertEqual(result, "hello")
-        self.assertGreaterEqual(set_mode.call_count, 1)
+        expected = {
+            "operation": "tool_write",
+            "path": "/workspace/a.txt",
+            "version": 3,
+            "created": True,
+            "bytes_written": 5,
+        }
+        with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
+            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", "host"]) as set_mode:
+                with patch("iruka_vfs.service_ops.file_api.tool_write_workspace_file", return_value=expected):
+                    result = self.workspace.write(db, "/workspace/a.txt", "hello")
+        self.assertEqual(result, expected)
+        ensure_workspace.assert_called_once_with(
+            db,
+            self.workspace.workspace,
+            self.workspace.runtime_seed,
+            include_tree=False,
+            tenant_id="tenant-a",
+        )
+        self.assertEqual(
+            set_mode.call_args_list,
+            [
+                call(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
+                    mode="agent",
+                    tenant_id="tenant-a",
+                    flush=True,
+                ),
+                call(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
+                    mode="host",
+                    tenant_id="tenant-a",
+                    flush=True,
+                ),
+            ],
+        )
 
     def test_success_then_host_recovery_failure_raises_recovery_exception(self) -> None:
         db = object()
         recovery_error = RuntimeError("failed to restore host mode")
-        with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}):
-            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", recovery_error]):
+        with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
+            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", recovery_error]) as set_mode:
                 with patch(
                     "iruka_vfs.service.run_virtual_bash",
                     return_value={
@@ -88,15 +128,71 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
                 ):
                     with self.assertRaisesRegex(RuntimeError, "failed to restore host mode") as captured:
                         self.workspace.run(db, "pwd")
+        ensure_workspace.assert_called_once_with(
+            db,
+            self.workspace.workspace,
+            self.workspace.runtime_seed,
+            include_tree=False,
+            tenant_id="tenant-a",
+        )
+        self.assertEqual(
+            set_mode.call_args_list,
+            [
+                call(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
+                    mode="agent",
+                    tenant_id="tenant-a",
+                    flush=True,
+                ),
+                call(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
+                    mode="host",
+                    tenant_id="tenant-a",
+                    flush=True,
+                ),
+            ],
+        )
         self.assertIn("post-condition", "\n".join(getattr(captured.exception, "__notes__", [])))
 
     def test_action_failure_keeps_original_exception_and_adds_recovery_note(self) -> None:
         db = object()
         action_error = ValueError("boom")
         recovery_error = RuntimeError("failed to restore host mode")
-        with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}):
-            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", recovery_error]):
+        with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
+            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", recovery_error]) as set_mode:
                 with patch("iruka_vfs.service.run_virtual_bash", side_effect=action_error):
                     with self.assertRaisesRegex(ValueError, "boom") as captured:
                         self.workspace.run(db, "pwd")
+        ensure_workspace.assert_called_once_with(
+            db,
+            self.workspace.workspace,
+            self.workspace.runtime_seed,
+            include_tree=False,
+            tenant_id="tenant-a",
+        )
+        self.assertEqual(
+            set_mode.call_args_list,
+            [
+                call(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
+                    mode="agent",
+                    tenant_id="tenant-a",
+                    flush=True,
+                ),
+                call(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
+                    mode="host",
+                    tenant_id="tenant-a",
+                    flush=True,
+                ),
+            ],
+        )
         self.assertIn("failed to restore host mode", "\n".join(getattr(captured.exception, "__notes__", [])))
