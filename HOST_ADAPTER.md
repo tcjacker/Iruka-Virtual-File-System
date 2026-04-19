@@ -21,8 +21,8 @@ The host adapter should:
 2. Build one workspace object for one agent
 3. Map one writable host file to the workspace's `primary_file`
 4. Map readonly host context and skill data to `context_files` and `skill_files`
-5. Call `workspace.ensure(db)` before command execution
-6. Call `workspace.bash(db, "...")` for each virtual command
+5. Call `workspace.ensure(db)` as an optional preflight when you want to materialize the workspace state
+6. Call `workspace.run(db, "...")`, `workspace.write(db, ...)`, `workspace.edit(db, ...)`, `workspace.read_file(db, ...)`, `workspace.read_directory(db, ...)`, and `workspace.file_tree(db, ...)` through the converged high-level API
 7. Call `workspace.flush()` at turn end or another explicit durability boundary
 
 The host adapter should not push host-only business models into VFS APIs.
@@ -51,12 +51,12 @@ workspace = create_workspace(
 )
 
 workspace.ensure(db)
-workspace.write_file(db, "/workspace/docs/generated.md", "from host adapter")
+workspace.write(db, "/workspace/docs/generated.md", "hello from host")
+tree = workspace.file_tree(db, "/workspace/docs")
+workspace.edit(db, "/workspace/docs/generated.md", "hello", "hello from host adapter")
 brief_text = workspace.read_file(db, "/workspace/docs/brief.md")
 doc_files = workspace.read_directory(db, "/workspace/docs")
-workspace.enter_agent_mode(db)
-result = workspace.bash(db, "edit /workspace/files/document_123.md --find foo --replace bar")
-workspace.enter_host_mode(db)
+result = workspace.run(db, "cat /workspace/chapters/chapter_123.md")
 workspace.flush()
 ```
 
@@ -71,9 +71,8 @@ Required constraints:
 - do not run concurrent commands on the same workspace
 - do not share one live SQLAlchemy `Session` across requests or threads
 - prefer storing only workspace identifiers and source bindings in a reusable adapter object
-- bind the current request's DB session when calling `workspace.ensure(db)` and `workspace.bash(db, "...")`
-- switch to `agent` mode before calling `workspace.bash(db, "...")`
-- switch back to `host` mode before direct host-side file reads or writes
+- bind the current request's DB session when calling `workspace.ensure(db)` and the high-level workspace methods
+- use the converged public API directly instead of manual mode switching
 - keep `workspace.flush()` as an explicit end-of-turn durability action
 
 This keeps Redis-backed workspace state reusable while avoiding stale DB sessions and request-crossing runtime objects.

@@ -35,12 +35,13 @@ Stable entry points:
 - `iruka_vfs.configure_vfs_dependencies(...)`
 - `iruka_vfs.create_workspace(...)`
 - `workspace.ensure(db)`
+- `workspace.write(db, path, content)`
+- `workspace.edit(db, path, old_text, new_text)`
+- `workspace.read_file(db, path)`
+- `workspace.read_directory(db, path)`
 - `workspace.file_tree(db, path="/workspace")`
-- `workspace.tool_write(db, path, content)`
-- `workspace.tool_edit(db, path, old_text, new_text, replace_all=False)`
-- `workspace.bash(db, "...")`
+- `workspace.run(db, "...")`
 - `workspace.flush()`
-- `iruka_vfs.service.snapshot_virtual_fs_cache_metrics()`
 
 ## Integration Model
 
@@ -49,8 +50,9 @@ The recommended integration pattern is:
 1. Configure dependencies once at process startup
 2. Build one workspace handle for one agent
 3. Bind one writable host file plus readonly context and skill files
-4. Prefer `workspace.tool_write(...)` and `workspace.tool_edit(...)` for structured file mutations, use `workspace.file_tree(...)` for the latest structured mirror tree, and use `workspace.bash(...)` for controlled shell-style reads/exploration
-5. Call `workspace.flush()` at a clear durability boundary
+4. Use `workspace.write(...)`, `workspace.edit(...)`, `workspace.read_file(...)`, `workspace.read_directory(...)`, `workspace.file_tree(...)`, and `workspace.run(...)` as the converged public path
+5. Call `workspace.ensure(db)` as an optional preflight when you need the workspace materialized
+6. Call `workspace.flush()` at a clear durability boundary
 
 See [`HOST_ADAPTER.md`](HOST_ADAPTER.md) for the host-side contract.
 
@@ -78,15 +80,12 @@ workspace = create_workspace(
 )
 
 workspace.ensure(db)
-workspace.write_file(db, "/workspace/docs/generated.md", "hello from host")
+workspace.write(db, "/workspace/docs/generated.md", "hello from host")
 tree = workspace.file_tree(db, "/workspace/docs")
-workspace.tool_write(db, "/workspace/docs/page.html", "<section>Hello</section>\n")
-workspace.tool_edit(db, "/workspace/docs/page.html", "Hello", "Hello Dog Cafe")
+workspace.edit(db, "/workspace/docs/generated.md", "hello", "hello from host adapter")
 content = workspace.read_file(db, "/workspace/docs/brief.md")
 files = workspace.read_directory(db, "/workspace/docs")
-workspace.enter_agent_mode(db)
-result = workspace.bash(db, "cat /workspace/chapters/chapter_123.md")
-workspace.enter_host_mode(db)
+result = workspace.run(db, "cat /workspace/chapters/chapter_123.md")
 workspace.flush()
 ```
 
@@ -94,16 +93,25 @@ This facade is intentionally lightweight. It can be reused across turns for the 
 
 ## Host File API
 
-Besides `workspace.bash(...)`, the host can manage virtual workspace files directly through Python APIs.
+The host can manage virtual workspace files directly through Python APIs.
 
 - `create_workspace(..., workspace_files={path: content, ...})`
-- `workspace.write_file(db, path, content)`
-- `workspace.file_tree(db, path="/workspace")`
-- `workspace.tool_write(db, path, content)`
-- `workspace.tool_edit(db, path, old_text, new_text, replace_all=False)`
+- `workspace.ensure(db)`
+- `workspace.write(db, path, content)`
+- `workspace.edit(db, path, old_text, new_text)`
 - `workspace.read_file(db, path)`
 - `workspace.read_directory(db, path, recursive=True)`
-- `workspace.enter_agent_mode(db)` / `workspace.enter_host_mode(db)`
+- `workspace.file_tree(db, path="/workspace")`
+- `workspace.run(db, "...")`
+- `workspace.flush()`
+
+## Migration From Deprecated APIs
+
+- `workspace.bash(db, cmd)` -> `workspace.run(db, cmd)`
+- `workspace.write_file(db, path, content)` -> `workspace.write(db, path, content)`
+- `workspace.tool_write(db, path, content)` -> `workspace.write(db, path, content)`
+- `workspace.tool_edit(db, path, old_text, new_text)` -> `workspace.edit(db, path, old_text, new_text)`
+- Explicit `enter_agent_mode(...)` / `enter_host_mode(...)` calls are no longer needed for the recommended host path.
 
 Notes:
 
@@ -112,11 +120,10 @@ Notes:
 - Paths must stay under `/workspace`
 - `file_tree(...)` returns the latest recursive tree from the active VFS mirror
 - `read_directory(...)` returns a `{virtual_path: content}` mapping
-- `tool_write(...)` is the recommended structured equivalent of a full-file `write`
-- `tool_edit(...)` is the recommended structured equivalent of a targeted text `edit`; it requires exactly one match unless `replace_all=True`
-- `write_file(...)`, `read_file(...)`, and `read_directory(...)` require `host` mode
-- `tool_write(...)` and `tool_edit(...)` require `host` mode
-- `workspace.bash(...)` requires `agent` mode
+- `write(...)` is the recommended structured equivalent of a full-file `write`
+- `edit(...)` is the recommended structured equivalent of a targeted text `edit`
+- Access mode switching is handled internally by the high-level API
+- `workspace.ensure(...)` is an optional preflight for materializing the workspace state
 
 ## Workspace Lifecycle
 
@@ -153,4 +160,4 @@ The demo uses:
 - demo SQLAlchemy models
 - an in-memory fake Redis
 
-It creates one workspace, mounts one writable chapter-like file into the VFS, runs `cat` and `edit`, and then flushes the workspace.
+It creates one workspace, mounts one writable chapter-like file into the VFS, runs `cat` and a text edit through the converged API, and then flushes the workspace.

@@ -173,9 +173,9 @@ def main() -> None:
         )
     )
 
-    from iruka_vfs import service as vfs_service
+    from iruka_vfs.service_ops import state as vfs_state
 
-    vfs_service._redis_client = InMemoryRedis()
+    vfs_state._redis_client = InMemoryRedis()
 
     engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
@@ -209,19 +209,22 @@ def main() -> None:
             skill_files={"index.md": "# Skills\n\n- none\n"},
         )
 
-        snapshot = workspace.ensure(db)
+        workspace.ensure(db)
+        snapshot = workspace.file_tree(db, "/workspace")
         print("tree:\n", snapshot.get("tree") or "")
-        workspace.enter_agent_mode(db)
-
-        read_result = workspace.bash(db, "cat /workspace/chapters/chapter_1.md")
+        workspace.write(db, "/workspace/notes/summary.md", "hello from host")
+        read_result = workspace.run(db, "cat /workspace/files/chapter_1.md")
         print("cat stdout:\n", read_result["stdout"])
 
-        edit_result = workspace.bash(
+        edit_result = workspace.edit(
             db,
-            "edit /workspace/chapters/chapter_1.md --find First --replace Rewritten",
+            "/workspace/files/chapter_1.md",
+            "First",
+            "Rewritten",
         )
-        print("edit exit_code:", edit_result["exit_code"])
-        print("edit stdout:\n", edit_result["stdout"])
+        print("edit result:", edit_result)
+        print("brief text:\n", workspace.read_file(db, "/workspace/files/chapter_1.md"))
+        print("notes files:\n", workspace.read_directory(db, "/workspace"))
 
         workspace.flush()
         print("host text after flush:\n", chapter_text["value"])

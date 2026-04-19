@@ -21,8 +21,8 @@
 2. 为一个 agent 构建一个 workspace 对象
 3. 把一个可写宿主文件映射成 workspace 的 `primary_file`
 4. 把只读 context / skill 数据映射成 `context_files` 和 `skill_files`
-5. 在执行命令前调用 `workspace.ensure(db)`
-6. 对每条虚拟命令调用 `workspace.bash(db, "...")`
+5. 在需要物化 workspace 状态时，把 `workspace.ensure(db)` 作为可选预检步骤
+6. 通过统一后的高层 API 调用 `workspace.run(db, "...")`、`workspace.write(db, ...)`、`workspace.edit(db, ...)`、`workspace.read_file(db, ...)`、`workspace.read_directory(db, ...)` 和 `workspace.file_tree(db, ...)`
 7. 在 turn 结束或其他明确的持久化边界调用 `workspace.flush()`
 
 不要把宿主专有业务模型直接暴露给 VFS API。
@@ -51,12 +51,12 @@ workspace = create_workspace(
 )
 
 workspace.ensure(db)
-workspace.write_file(db, "/workspace/docs/generated.md", "from host adapter")
+workspace.write(db, "/workspace/docs/generated.md", "hello from host")
+tree = workspace.file_tree(db, "/workspace/docs")
+workspace.edit(db, "/workspace/docs/generated.md", "hello", "hello from host adapter")
 brief_text = workspace.read_file(db, "/workspace/docs/brief.md")
 doc_files = workspace.read_directory(db, "/workspace/docs")
-workspace.enter_agent_mode(db)
-result = workspace.bash(db, "edit /workspace/files/document_123.md --find foo --replace bar")
-workspace.enter_host_mode(db)
+result = workspace.run(db, "cat /workspace/chapters/chapter_123.md")
 workspace.flush()
 ```
 
@@ -71,9 +71,8 @@ workspace.flush()
 - 不要在同一个 workspace 上并发执行命令
 - 不要跨请求或跨线程共享一个活跃的 SQLAlchemy `Session`
 - 可复用对象里只保留 workspace 标识和文件绑定，不保留请求级运行时资源
-- 调用 `workspace.ensure(db)` 和 `workspace.bash(db, "...")` 时，总是传入当前请求的 DB session
-- 调用 `workspace.bash(db, "...")` 之前先切到 `agent` 模式
-- 需要宿主直接读写文件前，先切回 `host` 模式
+- 调用 `workspace.ensure(db)` 和高层 workspace 方法时，总是传入当前请求的 DB session
+- 直接使用统一后的公开 API，不再手动切换模式
 - 把 `workspace.flush()` 作为显式的持久化动作
 
 这样可以在复用 Redis workspace 状态的同时，避免 stale session 和跨请求运行时对象带来的问题。
