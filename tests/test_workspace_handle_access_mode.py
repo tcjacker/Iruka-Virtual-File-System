@@ -76,7 +76,7 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
             "bytes_written": 5,
         }
         with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
-            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", "host"]) as set_mode:
+            with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host") as set_mode:
                 with patch("iruka_vfs.service_ops.file_api.tool_write_workspace_file", return_value=expected):
                     result = self.workspace.write(db, "/workspace/a.txt", "hello")
         self.assertEqual(result, expected)
@@ -94,10 +94,36 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
                     db,
                     self.workspace.workspace,
                     runtime_seed=self.workspace.runtime_seed,
-                    mode="agent",
+                    mode="host",
                     tenant_id="tenant-a",
                     flush=True,
                 ),
+            ],
+        )
+
+    def test_edit_restores_host_mode_after_success(self) -> None:
+        db = object()
+        expected = {
+            "operation": "tool_edit",
+            "path": "/workspace/a.txt",
+            "version": 4,
+            "replacements": 1,
+        }
+        with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
+            with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host") as set_mode:
+                with patch("iruka_vfs.service_ops.file_api.tool_edit_workspace_file", return_value=expected):
+                    result = self.workspace.edit(db, "/workspace/a.txt", "before", "after")
+        self.assertEqual(result, expected)
+        ensure_workspace.assert_called_once_with(
+            db,
+            self.workspace.workspace,
+            self.workspace.runtime_seed,
+            include_tree=False,
+            tenant_id="tenant-a",
+        )
+        self.assertEqual(
+            set_mode.call_args_list,
+            [
                 call(
                     db,
                     self.workspace.workspace,

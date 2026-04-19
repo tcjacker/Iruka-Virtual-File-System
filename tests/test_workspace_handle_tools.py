@@ -81,7 +81,7 @@ class WorkspaceHandlePublicApiTest(unittest.TestCase):
         }
         db = object()
         with patch("iruka_vfs.service_ops.file_api.tool_write_workspace_file", return_value=expected) as tool_write:
-            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", "host"]) as set_mode:
+            with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host") as set_mode:
                 with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
                     result = self.workspace.write(db, "/workspace/a.txt", "hello")
         self.assertEqual(result, expected)
@@ -95,14 +95,6 @@ class WorkspaceHandlePublicApiTest(unittest.TestCase):
         self.assertEqual(
             set_mode.call_args_list,
             [
-                call(
-                    db,
-                    self.workspace.workspace,
-                    runtime_seed=self.workspace.runtime_seed,
-                    mode="agent",
-                    tenant_id="tenant-a",
-                    flush=True,
-                ),
                 call(
                     db,
                     self.workspace.workspace,
@@ -131,7 +123,7 @@ class WorkspaceHandlePublicApiTest(unittest.TestCase):
         }
         db = object()
         with patch("iruka_vfs.service_ops.file_api.tool_edit_workspace_file", return_value=expected) as tool_edit:
-            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", "host"]) as set_mode:
+            with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host") as set_mode:
                 with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
                     result = self.workspace.edit(db, "/workspace/a.txt", "before", "after")
         self.assertEqual(result, expected)
@@ -145,14 +137,6 @@ class WorkspaceHandlePublicApiTest(unittest.TestCase):
         self.assertEqual(
             set_mode.call_args_list,
             [
-                call(
-                    db,
-                    self.workspace.workspace,
-                    runtime_seed=self.workspace.runtime_seed,
-                    mode="agent",
-                    tenant_id="tenant-a",
-                    flush=True,
-                ),
                 call(
                     db,
                     self.workspace.workspace,
