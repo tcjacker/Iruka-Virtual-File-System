@@ -109,15 +109,15 @@ class VirtualWorkspace:
         )
         action_result = None
         action_exc: Exception | None = None
-        service.set_workspace_access_mode(
-            db,
-            self.workspace,
-            runtime_seed=self.runtime_seed,
-            mode=target_mode,
-            tenant_id=self.tenant_id,
-            flush=True,
-        )
         try:
+            service.set_workspace_access_mode(
+                db,
+                self.workspace,
+                runtime_seed=self.runtime_seed,
+                mode=target_mode,
+                tenant_id=self.tenant_id,
+                flush=True,
+            )
             action_result = action()
         except Exception as exc:
             action_exc = exc

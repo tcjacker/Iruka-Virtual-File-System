@@ -475,6 +475,57 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
         )
         self.assertIn("post-condition", "\n".join(getattr(captured.exception, "__notes__", [])))
 
+    def test_target_mode_entry_failure_still_attempts_host_recovery(self) -> None:
+        db = object()
+        entry_error = RuntimeError("failed to enter agent mode")
+        with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
+            with patch("iruka_vfs.service.get_workspace_access_mode", return_value="readonly") as get_mode:
+                with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=[entry_error, "host"]) as set_mode:
+                    with patch("iruka_vfs.service.run_virtual_bash") as run_virtual_bash:
+                        parent = Mock()
+                        parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
+                        parent.attach_mock(get_mode, "get_workspace_access_mode")
+                        parent.attach_mock(set_mode, "set_workspace_access_mode")
+                        parent.attach_mock(run_virtual_bash, "run_virtual_bash")
+                        with self.assertRaisesRegex(RuntimeError, "failed to enter agent mode"):
+                            self.workspace.run(db, "pwd")
+
+        self.assertEqual(
+            parent.mock_calls,
+            [
+                call.ensure_virtual_workspace(
+                    db,
+                    self.workspace.workspace,
+                    self.workspace.runtime_seed,
+                    include_tree=False,
+                    tenant_id="tenant-a",
+                ),
+                call.get_workspace_access_mode(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
+                    tenant_id="tenant-a",
+                ),
+                call.set_workspace_access_mode(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
+                    mode="agent",
+                    tenant_id="tenant-a",
+                    flush=True,
+                ),
+                call.set_workspace_access_mode(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
+                    mode="host",
+                    tenant_id="tenant-a",
+                    flush=True,
+                ),
+            ],
+        )
+        run_virtual_bash.assert_not_called()
+
     def test_action_failure_keeps_original_exception_and_adds_recovery_note(self) -> None:
         db = object()
         action_error = ValueError("boom")
