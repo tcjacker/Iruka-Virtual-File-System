@@ -101,6 +101,41 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
             ],
         )
 
+    def test_read_file_restores_host_mode_after_success(self) -> None:
+        db = object()
+        with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
+            with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host") as set_mode:
+                with patch("iruka_vfs.service.read_workspace_file", return_value="hello") as read_file:
+                    result = self.workspace.read_file(db, "/workspace/a.txt")
+        self.assertEqual(result, "hello")
+        ensure_workspace.assert_called_once_with(
+            db,
+            self.workspace.workspace,
+            self.workspace.runtime_seed,
+            include_tree=False,
+            tenant_id="tenant-a",
+        )
+        self.assertEqual(
+            set_mode.call_args_list,
+            [
+                call(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
+                    mode="host",
+                    tenant_id="tenant-a",
+                    flush=True,
+                ),
+            ],
+        )
+        read_file.assert_called_once_with(
+            db,
+            self.workspace.workspace,
+            "/workspace/a.txt",
+            runtime_seed=self.workspace.runtime_seed,
+            tenant_id="tenant-a",
+        )
+
     def test_edit_restores_host_mode_after_success(self) -> None:
         db = object()
         expected = {
