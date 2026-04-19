@@ -40,16 +40,12 @@ class PublicApiExportsTest(unittest.TestCase):
         factory.assert_called_once()
         self.assertEqual(factory.call_args.kwargs["workspace"], workspace)
 
-    def test_compatibility_handle_alias_warns_when_instantiated(self) -> None:
+    def test_compatibility_handle_alias_warns_on_package_access_and_preserves_identity(self) -> None:
         with warnings.catch_warnings(record=True) as captured:
             warnings.simplefilter("always")
-            workspace = iruka_vfs.VirtualWorkspaceHandle(
-                workspace=DummyWorkspace(id=7, tenant_id="tenant-a"),
-                runtime_seed=SimpleNamespace(),
-                tenant_id="tenant-a",
-            )
+            workspace_handle_type = iruka_vfs.VirtualWorkspaceHandle
 
-        self.assertIsInstance(workspace, VirtualWorkspace)
+        self.assertIs(workspace_handle_type, VirtualWorkspace)
         self.assertTrue(any(item.category is DeprecationWarning for item in captured))
 
     def test_deprecated_workspace_methods_warn_and_forward(self) -> None:
@@ -104,3 +100,15 @@ class PublicApiExportsTest(unittest.TestCase):
             with patch.object(module, "snapshot_virtual_fs_cache_metrics", return_value={"hits": 1}):
                 module.snapshot_virtual_fs_cache_metrics()
         self.assertEqual(captured, [])
+
+    def test_service_private_helper_bindings_remain_available_for_internal_importers(self) -> None:
+        module = importlib.import_module("iruka_vfs.service")
+
+        from iruka_vfs.memory_cache import get_node_content
+        from iruka_vfs.pathing import resolve_path
+        from iruka_vfs.runtime import get_or_create_root, must_get_node
+
+        self.assertIs(module._get_node_content, get_node_content)
+        self.assertIs(module._resolve_path, resolve_path)
+        self.assertIs(module._get_or_create_root, get_or_create_root)
+        self.assertIs(module._must_get_node, must_get_node)

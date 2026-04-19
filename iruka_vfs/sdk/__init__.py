@@ -66,3 +66,15 @@ __all__ = [
     "VirtualWorkspace",
     "create_workspace",
 ]
+
+
+def __getattr__(name: str):
+    if name == "VirtualWorkspaceHandle":
+        warnings.warn(
+            "iruka_vfs.sdk.VirtualWorkspaceHandle is deprecated and will be removed in 0.3; "
+            "use iruka_vfs.sdk.VirtualWorkspace instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return VirtualWorkspace
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

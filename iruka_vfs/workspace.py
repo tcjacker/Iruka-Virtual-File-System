@@ -62,11 +62,7 @@ def create_workspace_handle(
         metadata=metadata,
     )
 
-
-class VirtualWorkspaceHandle(VirtualWorkspace):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        _warn_deprecated("iruka_vfs.VirtualWorkspaceHandle()", "iruka_vfs.VirtualWorkspace()")
-        super().__init__(*args, **kwargs)
+VirtualWorkspaceHandle = VirtualWorkspace
 
 __all__ = [
     "VirtualWorkspace",
