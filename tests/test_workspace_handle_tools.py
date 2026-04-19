@@ -99,8 +99,10 @@ class WorkspaceHandlePublicApiTest(unittest.TestCase):
     def test_workspace_file_tree_delegates_to_service(self) -> None:
         expected = {"path": "/workspace", "name": "workspace", "type": "dir", "children": []}
         db = object()
-        with patch("iruka_vfs.service_ops.file_api.get_workspace_file_tree", return_value=expected) as file_tree:
-            result = self.workspace.file_tree(db, "/workspace")
+        with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}):
+            with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host"):
+                with patch("iruka_vfs.service_ops.file_api.get_workspace_file_tree", return_value=expected) as file_tree:
+                    result = self.workspace.file_tree(db, "/workspace")
         self.assertEqual(result, expected)
         file_tree.assert_called_once_with(
             db,
@@ -108,4 +110,24 @@ class WorkspaceHandlePublicApiTest(unittest.TestCase):
             "/workspace",
             runtime_seed=self.workspace.runtime_seed,
             tenant_id="tenant-a",
+        )
+
+    def test_workspace_read_directory_delegates_to_service_payload(self) -> None:
+        expected = {
+            "/workspace/a.txt": "hello",
+            "/workspace/b.txt": "world",
+        }
+        db = object()
+        with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}):
+            with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host"):
+                with patch("iruka_vfs.service.read_workspace_directory", return_value=expected) as read_directory:
+                    result = self.workspace.read_directory(db, "/workspace", recursive=False)
+        self.assertEqual(result, expected)
+        read_directory.assert_called_once_with(
+            db,
+            self.workspace.workspace,
+            "/workspace",
+            runtime_seed=self.workspace.runtime_seed,
+            tenant_id="tenant-a",
+            recursive=False,
         )
