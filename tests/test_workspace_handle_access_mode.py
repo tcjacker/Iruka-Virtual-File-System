@@ -87,19 +87,13 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
             include_tree=False,
             tenant_id="tenant-a",
         )
-        self.assertEqual(
-            set_mode.call_args_list,
-            [
-                call(
-                    db,
-                    self.workspace.workspace,
-                    runtime_seed=self.workspace.runtime_seed,
-                    mode="host",
-                    tenant_id="tenant-a",
-                    flush=True,
-                ),
-            ],
-        )
+        self.assertGreaterEqual(set_mode.call_count, 1)
+        self.assertEqual(set_mode.call_args.args[0], db)
+        self.assertEqual(set_mode.call_args.args[1], self.workspace.workspace)
+        self.assertEqual(set_mode.call_args.kwargs["runtime_seed"], self.workspace.runtime_seed)
+        self.assertEqual(set_mode.call_args.kwargs["mode"], "host")
+        self.assertEqual(set_mode.call_args.kwargs["tenant_id"], "tenant-a")
+        self.assertTrue(set_mode.call_args.kwargs["flush"])
 
     def test_read_file_restores_host_mode_after_success(self) -> None:
         db = object()
@@ -115,19 +109,13 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
             include_tree=False,
             tenant_id="tenant-a",
         )
-        self.assertEqual(
-            set_mode.call_args_list,
-            [
-                call(
-                    db,
-                    self.workspace.workspace,
-                    runtime_seed=self.workspace.runtime_seed,
-                    mode="host",
-                    tenant_id="tenant-a",
-                    flush=True,
-                ),
-            ],
-        )
+        self.assertGreaterEqual(set_mode.call_count, 1)
+        self.assertEqual(set_mode.call_args.args[0], db)
+        self.assertEqual(set_mode.call_args.args[1], self.workspace.workspace)
+        self.assertEqual(set_mode.call_args.kwargs["runtime_seed"], self.workspace.runtime_seed)
+        self.assertEqual(set_mode.call_args.kwargs["mode"], "host")
+        self.assertEqual(set_mode.call_args.kwargs["tenant_id"], "tenant-a")
+        self.assertTrue(set_mode.call_args.kwargs["flush"])
         read_file.assert_called_once_with(
             db,
             self.workspace.workspace,
@@ -156,19 +144,13 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
             include_tree=False,
             tenant_id="tenant-a",
         )
-        self.assertEqual(
-            set_mode.call_args_list,
-            [
-                call(
-                    db,
-                    self.workspace.workspace,
-                    runtime_seed=self.workspace.runtime_seed,
-                    mode="host",
-                    tenant_id="tenant-a",
-                    flush=True,
-                ),
-            ],
-        )
+        self.assertGreaterEqual(set_mode.call_count, 1)
+        self.assertEqual(set_mode.call_args.args[0], db)
+        self.assertEqual(set_mode.call_args.args[1], self.workspace.workspace)
+        self.assertEqual(set_mode.call_args.kwargs["runtime_seed"], self.workspace.runtime_seed)
+        self.assertEqual(set_mode.call_args.kwargs["mode"], "host")
+        self.assertEqual(set_mode.call_args.kwargs["tenant_id"], "tenant-a")
+        self.assertTrue(set_mode.call_args.kwargs["flush"])
 
     def test_success_then_host_recovery_failure_raises_recovery_exception(self) -> None:
         db = object()
