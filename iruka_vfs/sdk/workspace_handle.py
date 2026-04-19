@@ -18,13 +18,13 @@ def _append_recovery_note(
     workspace_id: int,
     tenant_id: str,
     original_mode: str | None,
-    target_mode: str,
+    recovery_target_mode: str,
     recovery_exc: Exception,
 ) -> None:
     exc.add_note(
         "workspace mode recovery failed: "
         f"workspace_id={workspace_id} tenant_id={tenant_id} "
-        f"original_mode={original_mode!r} target_mode={target_mode!r} "
+        f"original_mode={original_mode!r} recovery_target_mode={recovery_target_mode!r} "
         f"recovery_error={type(recovery_exc).__name__}: {recovery_exc}"
     )
 
@@ -101,7 +101,12 @@ class VirtualWorkspace:
             include_tree=False,
             tenant_id=self.tenant_id,
         )
-        original_mode = None
+        original_mode = service.get_workspace_access_mode(
+            db,
+            self.workspace,
+            runtime_seed=self.runtime_seed,
+            tenant_id=self.tenant_id,
+        )
         action_result = None
         action_exc: Exception | None = None
         service.set_workspace_access_mode(
@@ -143,12 +148,14 @@ class VirtualWorkspace:
                         workspace_id=self.workspace_id,
                         tenant_id=self.tenant_id,
                         original_mode=original_mode,
-                        target_mode=target_mode,
+                        recovery_target_mode="host",
                         recovery_exc=recovery_exc,
                     )
                     raise action_exc
                 recovery_exc.add_note(
-                    f"action {action_name!r} succeeded but post-condition failed: workspace {self.workspace_id} was not restored to host mode"
+                    f"action {action_name!r} succeeded but post-condition failed: "
+                    f"workspace {self.workspace_id} original_mode={original_mode!r} "
+                    "recovery_target_mode='host' was not restored"
                 )
                 raise recovery_exc
         if action_exc is not None:

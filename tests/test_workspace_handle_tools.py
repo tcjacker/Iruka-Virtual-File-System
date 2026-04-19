@@ -31,9 +31,10 @@ class WorkspaceHandlePublicApiTest(unittest.TestCase):
         }
         db = object()
         with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}):
-            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", "host"]):
-                with patch("iruka_vfs.service.run_virtual_bash", return_value=expected) as run_virtual_bash:
-                    result = self.workspace.run(db, "pwd")
+            with patch("iruka_vfs.service.get_workspace_access_mode", return_value="host"):
+                with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", "host"]):
+                    with patch("iruka_vfs.service.run_virtual_bash", return_value=expected) as run_virtual_bash:
+                        result = self.workspace.run(db, "pwd")
         self.assertEqual(result, expected)
         run_virtual_bash.assert_called_once_with(
             db,
@@ -53,12 +54,13 @@ class WorkspaceHandlePublicApiTest(unittest.TestCase):
         }
         db = object()
         with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}):
-            with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host"):
-                with patch(
-                    "iruka_vfs.service_ops.file_api.tool_write_workspace_file",
-                    return_value=expected,
-                ) as tool_write:
-                    result = self.workspace.write(db, "/workspace/a.txt", "hello")
+            with patch("iruka_vfs.service.get_workspace_access_mode", return_value="host"):
+                with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host"):
+                    with patch(
+                        "iruka_vfs.service_ops.file_api.tool_write_workspace_file",
+                        return_value=expected,
+                    ) as tool_write:
+                        result = self.workspace.write(db, "/workspace/a.txt", "hello")
         self.assertEqual(result, expected)
         tool_write.assert_called_once_with(
             db,
@@ -78,12 +80,13 @@ class WorkspaceHandlePublicApiTest(unittest.TestCase):
         }
         db = object()
         with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}):
-            with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host"):
-                with patch(
-                    "iruka_vfs.service_ops.file_api.tool_edit_workspace_file",
-                    return_value=expected,
-                ) as tool_edit:
-                    result = self.workspace.edit(db, "/workspace/a.txt", "before", "after")
+            with patch("iruka_vfs.service.get_workspace_access_mode", return_value="host"):
+                with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host"):
+                    with patch(
+                        "iruka_vfs.service_ops.file_api.tool_edit_workspace_file",
+                        return_value=expected,
+                    ) as tool_edit:
+                        result = self.workspace.edit(db, "/workspace/a.txt", "before", "after")
         self.assertEqual(result, expected)
         tool_edit.assert_called_once_with(
             db,
@@ -100,9 +103,10 @@ class WorkspaceHandlePublicApiTest(unittest.TestCase):
         expected = {"path": "/workspace", "name": "workspace", "type": "dir", "children": []}
         db = object()
         with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}):
-            with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host"):
-                with patch("iruka_vfs.service_ops.file_api.get_workspace_file_tree", return_value=expected) as file_tree:
-                    result = self.workspace.file_tree(db, "/workspace")
+            with patch("iruka_vfs.service.get_workspace_access_mode", return_value="host"):
+                with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host"):
+                    with patch("iruka_vfs.service_ops.file_api.get_workspace_file_tree", return_value=expected) as file_tree:
+                        result = self.workspace.file_tree(db, "/workspace")
         self.assertEqual(result, expected)
         file_tree.assert_called_once_with(
             db,
@@ -119,9 +123,10 @@ class WorkspaceHandlePublicApiTest(unittest.TestCase):
         }
         db = object()
         with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}):
-            with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host"):
-                with patch("iruka_vfs.service.read_workspace_directory", return_value=expected) as read_directory:
-                    result = self.workspace.read_directory(db, "/workspace", recursive=False)
+            with patch("iruka_vfs.service.get_workspace_access_mode", return_value="host"):
+                with patch("iruka_vfs.service.set_workspace_access_mode", return_value="host"):
+                    with patch("iruka_vfs.service.read_workspace_directory", return_value=expected) as read_directory:
+                        result = self.workspace.read_directory(db, "/workspace", recursive=False)
         self.assertEqual(result, expected)
         read_directory.assert_called_once_with(
             db,

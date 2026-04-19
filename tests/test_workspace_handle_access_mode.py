@@ -22,24 +22,26 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
     def test_run_bootstraps_switches_to_agent_then_back_to_host(self) -> None:
         db = object()
         with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
-            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", "host"]) as set_mode:
-                with patch(
-                    "iruka_vfs.service.run_virtual_bash",
-                    return_value={
-                        "exit_code": 0,
-                        "stdout": "",
-                        "stderr": "",
-                        "artifacts": {},
-                        "cwd": "/workspace",
-                        "session_id": 1,
-                        "command_id": 2,
-                    },
-                ) as run_virtual_bash:
-                    parent = Mock()
-                    parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
-                    parent.attach_mock(set_mode, "set_workspace_access_mode")
-                    parent.attach_mock(run_virtual_bash, "run_virtual_bash")
-                    self.workspace.run(db, "pwd")
+            with patch("iruka_vfs.service.get_workspace_access_mode", return_value="host") as get_mode:
+                with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", "host"]) as set_mode:
+                    with patch(
+                        "iruka_vfs.service.run_virtual_bash",
+                        return_value={
+                            "exit_code": 0,
+                            "stdout": "",
+                            "stderr": "",
+                            "artifacts": {},
+                            "cwd": "/workspace",
+                            "session_id": 1,
+                            "command_id": 2,
+                        },
+                    ) as run_virtual_bash:
+                        parent = Mock()
+                        parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
+                        parent.attach_mock(get_mode, "get_workspace_access_mode")
+                        parent.attach_mock(set_mode, "set_workspace_access_mode")
+                        parent.attach_mock(run_virtual_bash, "run_virtual_bash")
+                        self.workspace.run(db, "pwd")
 
         self.assertEqual(
             parent.mock_calls,
@@ -49,6 +51,12 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
                     self.workspace.workspace,
                     self.workspace.runtime_seed,
                     include_tree=False,
+                    tenant_id="tenant-a",
+                ),
+                call.get_workspace_access_mode(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
                     tenant_id="tenant-a",
                 ),
                 call.set_workspace_access_mode(
@@ -87,16 +95,18 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
             "bytes_written": 5,
         }
         with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
-            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["host", "host"]) as set_mode:
-                with patch(
-                    "iruka_vfs.service_ops.file_api.tool_write_workspace_file",
-                    return_value=expected,
-                ) as tool_write:
-                    parent = Mock()
-                    parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
-                    parent.attach_mock(set_mode, "set_workspace_access_mode")
-                    parent.attach_mock(tool_write, "tool_write_workspace_file")
-                    result = self.workspace.write(db, "/workspace/a.txt", "hello")
+            with patch("iruka_vfs.service.get_workspace_access_mode", return_value="host") as get_mode:
+                with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["host", "host"]) as set_mode:
+                    with patch(
+                        "iruka_vfs.service_ops.file_api.tool_write_workspace_file",
+                        return_value=expected,
+                    ) as tool_write:
+                        parent = Mock()
+                        parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
+                        parent.attach_mock(get_mode, "get_workspace_access_mode")
+                        parent.attach_mock(set_mode, "set_workspace_access_mode")
+                        parent.attach_mock(tool_write, "tool_write_workspace_file")
+                        result = self.workspace.write(db, "/workspace/a.txt", "hello")
 
         self.assertEqual(result, expected)
         self.assertEqual(
@@ -107,6 +117,12 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
                     self.workspace.workspace,
                     self.workspace.runtime_seed,
                     include_tree=False,
+                    tenant_id="tenant-a",
+                ),
+                call.get_workspace_access_mode(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
                     tenant_id="tenant-a",
                 ),
                 call.set_workspace_access_mode(
@@ -139,13 +155,15 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
     def test_read_file_restores_host_mode_after_success(self) -> None:
         db = object()
         with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
-            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["host", "host"]) as set_mode:
-                with patch("iruka_vfs.service.read_workspace_file", return_value="hello") as read_file:
-                    parent = Mock()
-                    parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
-                    parent.attach_mock(set_mode, "set_workspace_access_mode")
-                    parent.attach_mock(read_file, "read_workspace_file")
-                    result = self.workspace.read_file(db, "/workspace/a.txt")
+            with patch("iruka_vfs.service.get_workspace_access_mode", return_value="host") as get_mode:
+                with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["host", "host"]) as set_mode:
+                    with patch("iruka_vfs.service.read_workspace_file", return_value="hello") as read_file:
+                        parent = Mock()
+                        parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
+                        parent.attach_mock(get_mode, "get_workspace_access_mode")
+                        parent.attach_mock(set_mode, "set_workspace_access_mode")
+                        parent.attach_mock(read_file, "read_workspace_file")
+                        result = self.workspace.read_file(db, "/workspace/a.txt")
 
         self.assertEqual(result, "hello")
         self.assertEqual(
@@ -156,6 +174,12 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
                     self.workspace.workspace,
                     self.workspace.runtime_seed,
                     include_tree=False,
+                    tenant_id="tenant-a",
+                ),
+                call.get_workspace_access_mode(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
                     tenant_id="tenant-a",
                 ),
                 call.set_workspace_access_mode(
@@ -193,13 +217,15 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
             "replacements": 1,
         }
         with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
-            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["host", "host"]) as set_mode:
-                with patch("iruka_vfs.service_ops.file_api.tool_edit_workspace_file", return_value=expected) as tool_edit:
-                    parent = Mock()
-                    parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
-                    parent.attach_mock(set_mode, "set_workspace_access_mode")
-                    parent.attach_mock(tool_edit, "tool_edit_workspace_file")
-                    result = self.workspace.edit(db, "/workspace/a.txt", "before", "after")
+            with patch("iruka_vfs.service.get_workspace_access_mode", return_value="host") as get_mode:
+                with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["host", "host"]) as set_mode:
+                    with patch("iruka_vfs.service_ops.file_api.tool_edit_workspace_file", return_value=expected) as tool_edit:
+                        parent = Mock()
+                        parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
+                        parent.attach_mock(get_mode, "get_workspace_access_mode")
+                        parent.attach_mock(set_mode, "set_workspace_access_mode")
+                        parent.attach_mock(tool_edit, "tool_edit_workspace_file")
+                        result = self.workspace.edit(db, "/workspace/a.txt", "before", "after")
 
         self.assertEqual(result, expected)
         self.assertEqual(
@@ -210,6 +236,12 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
                     self.workspace.workspace,
                     self.workspace.runtime_seed,
                     include_tree=False,
+                    tenant_id="tenant-a",
+                ),
+                call.get_workspace_access_mode(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
                     tenant_id="tenant-a",
                 ),
                 call.set_workspace_access_mode(
@@ -248,13 +280,15 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
             "/workspace/b.txt": "world",
         }
         with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
-            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["host", "host"]) as set_mode:
-                with patch("iruka_vfs.service.read_workspace_directory", return_value=expected) as read_directory:
-                    parent = Mock()
-                    parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
-                    parent.attach_mock(set_mode, "set_workspace_access_mode")
-                    parent.attach_mock(read_directory, "read_workspace_directory")
-                    result = self.workspace.read_directory(db, "/workspace", recursive=False)
+            with patch("iruka_vfs.service.get_workspace_access_mode", return_value="host") as get_mode:
+                with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["host", "host"]) as set_mode:
+                    with patch("iruka_vfs.service.read_workspace_directory", return_value=expected) as read_directory:
+                        parent = Mock()
+                        parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
+                        parent.attach_mock(get_mode, "get_workspace_access_mode")
+                        parent.attach_mock(set_mode, "set_workspace_access_mode")
+                        parent.attach_mock(read_directory, "read_workspace_directory")
+                        result = self.workspace.read_directory(db, "/workspace", recursive=False)
 
         self.assertEqual(result, expected)
         self.assertEqual(
@@ -265,6 +299,12 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
                     self.workspace.workspace,
                     self.workspace.runtime_seed,
                     include_tree=False,
+                    tenant_id="tenant-a",
+                ),
+                call.get_workspace_access_mode(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
                     tenant_id="tenant-a",
                 ),
                 call.set_workspace_access_mode(
@@ -298,13 +338,15 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
         db = object()
         expected = {"path": "/workspace", "name": "workspace", "type": "dir", "children": []}
         with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
-            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["host", "host"]) as set_mode:
-                with patch("iruka_vfs.service_ops.file_api.get_workspace_file_tree", return_value=expected) as file_tree:
-                    parent = Mock()
-                    parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
-                    parent.attach_mock(set_mode, "set_workspace_access_mode")
-                    parent.attach_mock(file_tree, "get_workspace_file_tree")
-                    result = self.workspace.file_tree(db, "/workspace")
+            with patch("iruka_vfs.service.get_workspace_access_mode", return_value="host") as get_mode:
+                with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["host", "host"]) as set_mode:
+                    with patch("iruka_vfs.service_ops.file_api.get_workspace_file_tree", return_value=expected) as file_tree:
+                        parent = Mock()
+                        parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
+                        parent.attach_mock(get_mode, "get_workspace_access_mode")
+                        parent.attach_mock(set_mode, "set_workspace_access_mode")
+                        parent.attach_mock(file_tree, "get_workspace_file_tree")
+                        result = self.workspace.file_tree(db, "/workspace")
 
         self.assertEqual(result, expected)
         self.assertEqual(
@@ -315,6 +357,12 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
                     self.workspace.workspace,
                     self.workspace.runtime_seed,
                     include_tree=False,
+                    tenant_id="tenant-a",
+                ),
+                call.get_workspace_access_mode(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
                     tenant_id="tenant-a",
                 ),
                 call.set_workspace_access_mode(
@@ -347,26 +395,28 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
         db = object()
         recovery_error = RuntimeError("failed to restore host mode")
         with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
-            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", recovery_error]) as set_mode:
-                with patch(
-                    "iruka_vfs.service.run_virtual_bash",
-                    return_value={
-                        "exit_code": 0,
-                        "stdout": "",
-                        "stderr": "",
-                        "artifacts": {},
-                        "cwd": "/workspace",
-                        "session_id": 1,
-                        "command_id": 2,
-                    },
-                ) as run_virtual_bash:
-                    with patch("iruka_vfs.sdk.workspace_handle.logger.error") as log_error:
-                        parent = Mock()
-                        parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
-                        parent.attach_mock(set_mode, "set_workspace_access_mode")
-                        parent.attach_mock(run_virtual_bash, "run_virtual_bash")
-                        with self.assertRaisesRegex(RuntimeError, "failed to restore host mode") as captured:
-                            self.workspace.run(db, "pwd")
+            with patch("iruka_vfs.service.get_workspace_access_mode", return_value="readonly") as get_mode:
+                with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", recovery_error]) as set_mode:
+                    with patch(
+                        "iruka_vfs.service.run_virtual_bash",
+                        return_value={
+                            "exit_code": 0,
+                            "stdout": "",
+                            "stderr": "",
+                            "artifacts": {},
+                            "cwd": "/workspace",
+                            "session_id": 1,
+                            "command_id": 2,
+                        },
+                    ) as run_virtual_bash:
+                        with patch("iruka_vfs.sdk.workspace_handle.logger.error") as log_error:
+                            parent = Mock()
+                            parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
+                            parent.attach_mock(get_mode, "get_workspace_access_mode")
+                            parent.attach_mock(set_mode, "set_workspace_access_mode")
+                            parent.attach_mock(run_virtual_bash, "run_virtual_bash")
+                            with self.assertRaisesRegex(RuntimeError, "failed to restore host mode") as captured:
+                                self.workspace.run(db, "pwd")
 
         self.assertEqual(
             parent.mock_calls,
@@ -376,6 +426,12 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
                     self.workspace.workspace,
                     self.workspace.runtime_seed,
                     include_tree=False,
+                    tenant_id="tenant-a",
+                ),
+                call.get_workspace_access_mode(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
                     tenant_id="tenant-a",
                 ),
                 call.set_workspace_access_mode(
@@ -408,7 +464,7 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
             extra={
                 "workspace_id": 7,
                 "tenant_id": "tenant-a",
-                "original_mode": None,
+                "original_mode": "readonly",
                 "target_mode": "agent",
                 "attempted_recovery_mode": "host",
                 "action_name": "run",
@@ -424,15 +480,17 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
         action_error = ValueError("boom")
         recovery_error = RuntimeError("failed to restore host mode")
         with patch("iruka_vfs.service.ensure_virtual_workspace", return_value={"tree": ""}) as ensure_workspace:
-            with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", recovery_error]) as set_mode:
-                with patch("iruka_vfs.service.run_virtual_bash", side_effect=action_error) as run_virtual_bash:
-                    with patch("iruka_vfs.sdk.workspace_handle.logger.error") as log_error:
-                        parent = Mock()
-                        parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
-                        parent.attach_mock(set_mode, "set_workspace_access_mode")
-                        parent.attach_mock(run_virtual_bash, "run_virtual_bash")
-                        with self.assertRaisesRegex(ValueError, "boom") as captured:
-                            self.workspace.run(db, "pwd")
+            with patch("iruka_vfs.service.get_workspace_access_mode", return_value="readonly") as get_mode:
+                with patch("iruka_vfs.service.set_workspace_access_mode", side_effect=["agent", recovery_error]) as set_mode:
+                    with patch("iruka_vfs.service.run_virtual_bash", side_effect=action_error) as run_virtual_bash:
+                        with patch("iruka_vfs.sdk.workspace_handle.logger.error") as log_error:
+                            parent = Mock()
+                            parent.attach_mock(ensure_workspace, "ensure_virtual_workspace")
+                            parent.attach_mock(get_mode, "get_workspace_access_mode")
+                            parent.attach_mock(set_mode, "set_workspace_access_mode")
+                            parent.attach_mock(run_virtual_bash, "run_virtual_bash")
+                            with self.assertRaisesRegex(ValueError, "boom") as captured:
+                                self.workspace.run(db, "pwd")
 
         self.assertEqual(
             parent.mock_calls,
@@ -442,6 +500,12 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
                     self.workspace.workspace,
                     self.workspace.runtime_seed,
                     include_tree=False,
+                    tenant_id="tenant-a",
+                ),
+                call.get_workspace_access_mode(
+                    db,
+                    self.workspace.workspace,
+                    runtime_seed=self.workspace.runtime_seed,
                     tenant_id="tenant-a",
                 ),
                 call.set_workspace_access_mode(
@@ -474,7 +538,7 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
             extra={
                 "workspace_id": 7,
                 "tenant_id": "tenant-a",
-                "original_mode": None,
+                "original_mode": "readonly",
                 "target_mode": "agent",
                 "attempted_recovery_mode": "host",
                 "action_name": "run",
@@ -483,4 +547,7 @@ class WorkspaceHandleAccessModeTest(unittest.TestCase):
                 "action_succeeded": False,
             },
         )
-        self.assertIn("failed to restore host mode", "\n".join(getattr(captured.exception, "__notes__", [])))
+        notes = "\n".join(getattr(captured.exception, "__notes__", []))
+        self.assertIn("failed to restore host mode", notes)
+        self.assertIn("original_mode='readonly'", notes)
+        self.assertIn("recovery_target_mode='host'", notes)
